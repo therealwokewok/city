@@ -11,7 +11,8 @@ const select = (id, label, options, value, hint) => h('div', { class: 'field' },
     options.map(([v, t]) => h('option', { value: v, selected: v === value ? true : null }, t))));
 const num = (v) => { const s = String(v).trim().replace(/,/g, ''); return s !== '' && /^-?\d+(\.\d+)?$/.test(s) ? parseFloat(s) : null; };
 const dollarsToCents = (v) => { const n = num(String(v).replace(/[$]/g, '')); return n === null ? null : Math.round(n * 100); };
-const say = (host, msg) => { fill(host, h('p', { class: 'notice', role: 'status' }, msg)); announce(msg); };
+// Shows the message and brings it into view, so someone at the bottom of a long form sees it too.
+const say = (host, msg) => { fill(host, h('p', { class: 'notice', role: 'status' }, '✓ ' + msg)); announce(msg); host.scrollIntoView?.({ block: 'center', behavior: 'smooth' }); };
 
 // =============== hub ===============
 export const hub = safe(async () => {
@@ -19,7 +20,7 @@ export const hub = safe(async () => {
   const cards = [];
   if (has('city_admin', 'site_admin', 'auditor')) cards.push(card('People and roles', 'Add staff, choose what each person can do, turn off someone who left.', '#/admin/people'));
   if (has('city_admin', 'site_admin')) cards.push(card('City settings', 'Due dates, late charges, phone number, office hours and return address.', '#/admin/settings'));
-  if (has('city_admin', 'site_admin')) cards.push(card('Colors, logo and demo mode', 'Put the city logo and a color on every page, and turn the demo notice on or off.', '#/admin/appearance'));
+  if (has('city_admin', 'site_admin')) cards.push(card('Colors, logo and demo mode', 'Match the city website: colors and logo on every page, and the demo notice on or off.', '#/admin/appearance'));
   if (has('city_admin', 'site_admin')) cards.push(card('Updates', 'See if a newer version of this program is ready, and choose where updates come from.', '#/admin/updates'));
   if (has('city_admin', 'billing_clerk')) cards.push(card('Services and rates', 'Turn water, sewer, trash and electric on or off, and set what each one costs.', '#/admin/rates'));
   if (has('city_admin', 'billing_clerk')) cards.push(card('Printing', 'Set the paper and envelope sizes you own and where each item prints.', '#/admin/printing'));
@@ -142,18 +143,19 @@ export const people = safe(async () => {
 }, 'People and roles');
 
 // =============== services and rates ===============
-const per1000 = (mills) => money(Math.round(mills / 100));
+// A price stored in mills per unit (1 mill = 1/1000 cent) is that many cents per 1,000 units.
+const per1000 = (mills) => money(mills);
 export function describeRate(c) {
   if (c.type === 'flat') return `${money(c.amount_cents)} flat${c.taxable ? ', taxable' : ''}`;
-  const parts = [`${money(c.base_cents)} covers the first ${c.included_units} units`];
+  const unit = c.unit || 'units';
+  const parts = [c.included_units ? `${money(c.base_cents)} covers the first ${c.included_units.toLocaleString()} ${unit}` : `${money(c.base_cents)} base charge`];
   let last = c.included_units;
   for (const t of c.tiers) {
-    parts.push(t.up_to === null ? `then ${per1000(t.mills_per_unit)} per 1,000 units after ${last}` : `${per1000(t.mills_per_unit)} per 1,000 units up to ${t.up_to}`);
+    parts.push(t.up_to === null ? (last ? `then ${per1000(t.mills_per_unit)} per 1,000 ${unit} after ${last.toLocaleString()}` : `then ${per1000(t.mills_per_unit)} per 1,000 ${unit}`) : `${per1000(t.mills_per_unit)} per 1,000 ${unit} up to ${t.up_to.toLocaleString()}`);
     if (t.up_to !== null) last = t.up_to;
   }
   if (c.minimum_cents) parts.push(`minimum ${money(c.minimum_cents)}`);
-  if (c.fuel_adjust_mills_per_unit) parts.push(`${(c.adjustment_label || 'fuel adjustment').toLowerCase()} ${per1000(c.fuel_adjust_mills_per_unit)} per 1,000 units`);
-  if (c.unit) parts.push(`counted in ${c.unit}`);
+  if (c.fuel_adjust_mills_per_unit) parts.push(`${(c.adjustment_label || 'fuel adjustment').toLowerCase()} ${per1000(c.fuel_adjust_mills_per_unit)} per 1,000 ${unit}`);
   if (c.usage_factor && c.usage_factor !== 1) parts.push(`meter reading times ${c.usage_factor}`);
   if (c.per_meter) parts.push('billed for each meter');
   if (c.basis) parts.push(`based on ${c.basis} use`);
@@ -262,7 +264,8 @@ export const rates = safe(async () => {
     });
     fill(host, f); f.querySelector('input')?.focus();
   }
-  function draw() { fill(host, ...data.services.map(serviceCard)); }
+  // Services in use first, then the rest, each in A to Z order.
+  function draw() { fill(host, ...[...data.services].sort((a, b) => (b.enabled - a.enabled) || a.name.localeCompare(b.name)).map(serviceCard)); }
   draw();
   return h('div', {}, back(), h('h1', {}, 'Services and rates'), note, host);
 }, 'Services and rates');

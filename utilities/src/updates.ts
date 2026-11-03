@@ -28,7 +28,7 @@ export async function checkForUpdate(repoUrl: string, fetchImpl: typeof fetch = 
     const list = (await res.json()) as { tag_name: string; html_url: string; draft: boolean; prerelease: boolean }[];
     const mine = list.filter((r) => !r.draft && !r.prerelease && /^utilities-v\d+\.\d+\.\d+$/.test(r.tag_name));
     const best = mine.map((r) => ({ r, v: parseVersion(r.tag_name)! })).sort((x, y) => (isNewer(x.v, y.v) ? -1 : 1))[0];
-    if (!best) return { ...base, problem: 'No release named like utilities-v1.2.3 was found' };
+    if (!best) return base; // nothing published yet, so the running version is the newest there is
     const running = parseVersion('v' + RUNNING_VERSION) ?? [0, 0, 0];
     const url = /^https:\/\/github\.com\//.test(best.r.html_url) ? best.r.html_url : undefined;
     return { ...base, latest: best.r.tag_name.replace('utilities-v', ''), newer: isNewer(best.v, running), url };

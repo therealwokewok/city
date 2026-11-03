@@ -108,7 +108,8 @@ export function themeCss(s: Pick<CitySettings, 'theme_color' | 'accent_color' | 
   if (ok(s.rule_color)) {
     always.push(`--rule: ${s.rule_color}`);
     const header = ok(s.theme_color) ? s.theme_color : '#0b4f8a';
-    always.push(`--brand-sub: ${contrastBetween(s.rule_color, header) >= 4.5 ? s.rule_color : '#ffffff'}`);
+    const onHeader = contrastBetween(s.rule_color, header) >= 3 ? s.rule_color : '#ffffff';
+    always.push(`--brand-sub: ${contrastBetween(s.rule_color, header) >= 4.5 ? s.rule_color : '#ffffff'}`, `--rule-on-header: ${onHeader}`);
   }
   let css = '';
   if (always.length) css += `:root { ${always.join('; ')}; }\n`;

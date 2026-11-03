@@ -21,7 +21,7 @@ write_files:
       TEST_DOMAIN=corycline.com
       # Shown on the demo the first time it is set up; change them in the app afterwards.
       CITY_NAME="City of Osceola"
-      CITY_SETTINGS='{"phone": "(417) 646-8421", "office_hours": "Monday to Friday, 8:00 AM to 4:00 PM", "return_address": "City of Osceola\\n210 Olive St\\nOsceola, MO 64776", "remit_to": "City of Osceola, 210 Olive St, Osceola, MO 64776", "theme_color": "#173f4a", "accent_color": "#8f2f1f", "rule_color": "#d9a33a", "demo_branded": true}'
+      CITY_SETTINGS='{"phone": "(417) 646-8421", "office_hours": "Monday to Friday, 8:00 AM to 4:00 PM", "return_address": "City of Osceola\n210 Olive St\nOsceola, MO 64776", "remit_to": "City of Osceola, 210 Olive St, Osceola, MO 64776", "theme_color": "#173f4a", "accent_color": "#8f2f1f", "rule_color": "#d9a33a", "demo_branded": true}'
       EMAIL_API_URL=https://utilities-mail-relay.city-of-osceola-missouri.workers.dev
       EMAIL_FROM=utilities-demo@osceolamo.com
       # ------------------

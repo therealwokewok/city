@@ -15,7 +15,7 @@ describe('update check', () => {
   });
   it('says plainly when there is nothing, or GitHub cannot be reached', async () => {
     expect((await checkForUpdate('https://github.com/o/r', fakeFetch(404, {}))).problem).toMatch(/No releases/);
-    expect((await checkForUpdate('https://github.com/o/r', fakeFetch(200, [])).then((x) => x.problem))).toMatch(/utilities-v1\.2\.3/);
+    const none = await checkForUpdate('https://github.com/o/r', fakeFetch(200, [])); expect(none.problem).toBeUndefined(); expect(none.newer).toBe(false);
     expect((await checkForUpdate('https://github.com/o/r', (async () => { throw new Error('x'); }) as any)).problem).toMatch(/Could not reach/);
   });
   it('never sends a request for a non-GitHub address', async () => {

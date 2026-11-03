@@ -313,24 +313,32 @@ export const account = safe(async (id) => {
     const have = new Set(d.services.map((x) => x.code));
     const rows = d.services.map((x) => {
       const q = h('input', { type: 'number', min: '1', max: '99', value: String(x.quantity), class: 'qty', id: `sq-${x.code}`, 'aria-label': `How many ${x.name}`, disabled: !canManage });
-      return h('li', { class: 'svc-pick' }, h('strong', {}, x.name), x.enabled ? null : h('span', { class: 'muted' }, ' (stopped)'),
-        canManage && x.kind === 'flat' ? h('span', {}, ' How many: ', q, h('button', { class: 'btn secondary', type: 'button', 'aria-label': `Save how many ${x.name}`, onclick: () => setSvc(x.code, x.enabled, Math.max(1, parseInt(q.value, 10) || 1), `${x.name} saved.`) }, 'Save')) : (x.kind === 'flat' && x.quantity > 1 ? h('span', {}, ` x ${x.quantity}`) : null),
-        canManage ? h('button', { class: 'btn secondary', type: 'button', onclick: () => setSvc(x.code, !x.enabled, x.quantity, x.enabled ? `${x.name} stopped.` : `${x.name} started.`) }, x.enabled ? `Stop ${x.name}` : `Start ${x.name} again`) : null);
+      const info = x.enabled ? (x.kind === 'flat' && x.quantity > 1 && !canManage ? `${x.quantity} of these` : (x.kind === 'flat' ? 'Flat charge' : 'Metered')) : 'Stopped';
+      return h('li', { class: 'svc-row' },
+        h('div', { class: 'svc-name' }, h('strong', {}, x.name), h('span', { class: 'muted' }, info)),
+        h('div', { class: 'svc-actions' },
+          canManage && x.kind === 'flat' ? h('span', { class: 'qty-group' }, h('label', { for: `sq-${x.code}`, class: 'inline' }, 'How many'), q,
+            h('button', { class: 'btn secondary small', type: 'button', 'aria-label': `Save how many ${x.name}`, onclick: () => setSvc(x.code, x.enabled, Math.max(1, parseInt(q.value, 10) || 1), `${x.name} saved.`) }, 'Save')) : null,
+          canManage ? h('button', { class: 'btn secondary small', type: 'button', onclick: () => setSvc(x.code, !x.enabled, x.quantity, x.enabled ? `${x.name} stopped.` : `${x.name} started.`) }, x.enabled ? `Stop ${x.name}` : `Start ${x.name} again`) : null));
     });
     const addable = city.services.filter((x) => x.enabled && !have.has(x.code));
     const sel = h('select', { id: 'addsvc' }, addable.map((x) => h('option', { value: x.code }, x.name)));
-    const aq = h('input', { type: 'number', min: '1', max: '99', value: '1', class: 'qty', id: 'addq', 'aria-label': 'How many' });
-    const meterRows = d.meters.map((m) => h('li', { class: 'svc-pick' }, h('span', {}, `${m.service_code} meter ${m.serial}${m.location ? ', ' + m.location : ''}${m.active ? '' : ' (off)'}`),
-      canManage ? h('button', { class: 'btn secondary', type: 'button', onclick: async () => { try { await api('POST', `/api/staff/meters/${m.id}/active`, { active: !m.active }); await redo(); announce('Meter updated.'); } catch (e) { showError(svcSec, e.message); } } }, m.active ? 'Turn this meter off' : 'Turn this meter on') : null));
+    const aq = h('input', { type: 'number', min: '1', max: '99', value: '1', class: 'qty', id: 'addq' });
+    const meterRows = d.meters.map((m) => h('li', { class: 'svc-row' },
+      h('div', { class: 'svc-name' }, h('strong', {}, `${(d.services.find((x) => x.code === m.service_code) || {}).name || m.service_code} meter ${m.serial}`), h('span', { class: 'muted' }, `${m.location || 'No location noted'}${m.active ? '' : ' (off)'}`)),
+      canManage ? h('div', { class: 'svc-actions' }, h('button', { class: 'btn secondary small', type: 'button', onclick: async () => { try { await api('POST', `/api/staff/meters/${m.id}/active`, { active: !m.active }); await redo(); announce('Meter updated.'); } catch (e) { showError(svcSec, e.message); } } }, m.active ? 'Turn this meter off' : 'Turn this meter on')) : null));
     const mser = h('input', { id: 'mser', type: 'text', autocomplete: 'off' }), mloc = h('input', { id: 'mloc', type: 'text', autocomplete: 'off' });
-    const msel = h('select', { id: 'msvc' }, city.services.filter((x) => x.kind === 'metered' && x.enabled).map((x) => h('option', { value: x.code }, x.name)));
+    // Only services this account already has can get a meter.
+    const msel = h('select', { id: 'msvc' }, city.services.filter((x) => x.kind === 'metered' && x.enabled && have.has(x.code)).map((x) => h('option', { value: x.code }, x.name)));
     fill(svcSec, h('h2', { id: 'svc-h' }, 'Services and meters'),
       rows.length ? h('ul', { class: 'list' }, rows) : h('p', { class: 'muted' }, 'No services yet.'),
-      canManage && addable.length ? h('div', { class: 'field' }, h('label', { for: 'addsvc' }, 'Add a service'), sel, h('label', { for: 'addq' }, 'How many (flat services)'), aq,
-        h('div', { class: 'actions' }, h('button', { class: 'btn', type: 'button', onclick: () => setSvc(sel.value, true, Math.max(1, parseInt(aq.value, 10) || 1), 'Service added.') }, 'Add this service'))) : null,
+      canManage && addable.length ? h('div', { class: 'addbox' }, h('h3', {}, 'Add a service'),
+        h('div', { class: 'addgrid' }, h('div', {}, h('label', { for: 'addsvc' }, 'Service to add'), sel), h('div', {}, h('label', { for: 'addq' }, 'How many'), aq),
+          h('button', { class: 'btn', type: 'button', onclick: () => setSvc(sel.value, true, Math.max(1, parseInt(aq.value, 10) || 1), 'Service added.') }, 'Add this service'))) : null,
       h('h3', {}, 'Meters'), meterRows.length ? h('ul', { class: 'list' }, meterRows) : h('p', { class: 'muted' }, 'No meters.'),
-      canManage && msel.children.length ? h('div', { class: 'field' }, h('label', { for: 'msvc' }, 'Add a meter for'), msel, h('label', { for: 'mser' }, 'Meter number'), mser, h('label', { for: 'mloc' }, 'Where it is (optional)'), mloc,
-        h('div', { class: 'actions' }, h('button', { class: 'btn', type: 'button', onclick: async () => {
+      canManage && msel.children.length ? h('div', { class: 'addbox' }, h('h3', {}, 'Add a meter'),
+        h('div', { class: 'addgrid' }, h('div', {}, h('label', { for: 'msvc' }, 'Meter for'), msel), h('div', {}, h('label', { for: 'mser' }, 'Meter number'), mser), h('div', {}, h('label', { for: 'mloc' }, 'Where it is (optional)'), mloc),
+        h('button', { class: 'btn', type: 'button', onclick: async () => {
           if (!mser.value.trim()) { showError(svcSec, 'Please type the meter number.'); return; }
           try { await api('POST', '/api/staff/meters', { account_id: id, service_code: msel.value, serial: mser.value.trim(), location: mloc.value.trim() || undefined }); await redo(); announce('Meter added.'); } catch (e) { showError(svcSec, e.message); }
         } }, 'Add this meter'))) : null);
