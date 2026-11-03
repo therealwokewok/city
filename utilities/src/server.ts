@@ -436,7 +436,9 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
         paymentId: pending.id, amountCents: amount_cents, description: `Utility bill, account ${pending.account_number}`,
         customerEmail: pending.email, successUrl: `${base}/pay/done?p=${pending.id}`, cancelUrl: `${base}/pay/cancelled?p=${pending.id}`,
       });
-      await tx(ctx, (c) => attachProviderRef(c, pending.id, out.ref));
+      // Residents cannot change payment rows (row security), so the system records the processor's reference.
+      const sysPay: Ctx = { cityId: req.cityId, userId: null, perms: ['payments.settle', 'accounts.read'] };
+      await tx(sysPay, (c) => attachProviderRef(c, pending.id, out.ref));
       if (out.clientSecret) return { payment_id: pending.id, client_secret: out.clientSecret, publishable_key: deps.payments.publishableKey, return_url: `${base}/pay/done?p=${pending.id}` };
       // Demo only: the built-in fake processor has no real checkout page, so act as if the payment went through.
       if (deps.payments.name === 'fake' && req.demo) {
@@ -446,7 +448,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
       return { url: out.url };
     } catch (e) {
       req.log.error({ err: e }, 'checkout failed');
-      await tx(ctx, (c) => c.query(`update payments set status = 'failed', completed_at = now() where id = $1`, [pending.id]));
+      await tx({ cityId: req.cityId, userId: null, perms: ['payments.settle', 'accounts.read'] }, (c) => c.query(`update payments set status = 'failed', completed_at = now() where id = $1 and status = 'pending'`, [pending.id]));
       throw new HttpError(502, 'We could not start the payment. Please try again later.');
     }
   });
@@ -499,6 +501,11 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
     const p = await tx(sys, async (c) => (await c.query('select id, account_id, provider_ref, status, amount_cents from payments where id = $1', [id])).rows[0]);
     if (!p) throw notFound();
     await tx(ctxOf(req), async (c) => { if (!(await c.query('select 1 from accounts where id = $1', [p.account_id])).rows[0]) throw notFound(); });
+    if (!p.provider_ref && p.status !== 'succeeded' && deps.payments.findPaymentRef) {
+      // Payments started before a fix could be missing the processor's reference; look it up by our id.
+      const ref = await deps.payments.findPaymentRef(id).catch(() => undefined);
+      if (ref) { p.provider_ref = ref; await tx(sys, (c) => attachProviderRef(c, id, ref)); }
+    }
     if (p.status === 'succeeded' || !p.provider_ref || !deps.payments.paymentStatus) return { status: p.status === 'succeeded' ? 'completed' : p.status };
     const st = await deps.payments.paymentStatus(p.provider_ref);
     if (st.paymentId !== id) throw forbid('Payment does not match');

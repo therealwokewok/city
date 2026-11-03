@@ -32,6 +32,8 @@ export interface PaymentsAdapter {
   name: string;
   /** Public key the browser uses to show the processor's fields. Empty for the fake processor. */
   publishableKey?: string;
+  /** Finds the processor's reference for one of our payments when we never saved it. */
+  findPaymentRef?(paymentId: string): Promise<string | undefined>;
   /** false for test keys: nothing real moves, so a demo may use them. */
   live?: boolean;
   createCheckout(r: CheckoutRequest): Promise<ClientStart>;
@@ -72,6 +74,13 @@ export class StripeAdapter implements PaymentsAdapter {
       : j.status === 'canceled' ? 'failed' : 'open';
     return { status, amountCents: Number(j.amount_received || j.amount), paymentId: j.metadata?.payment_id,
       method: j.payment_method?.type === 'us_bank_account' ? 'ach' : 'card' };
+  }
+
+  async findPaymentRef(paymentId: string): Promise<string | undefined> {
+    if (!/^[0-9a-f-]{36}$/.test(paymentId)) return undefined;
+    const q = encodeURIComponent(`metadata['payment_id']:'${paymentId}'`);
+    const j = await this.stripe('GET', `payment_intents/search?query=${q}&limit=1`);
+    return j.data?.[0]?.id;
   }
 
   private async stripe(method: 'GET' | 'POST', path: string, body?: URLSearchParams, idem?: string): Promise<any> {

@@ -45,6 +45,11 @@ describe('Stripe Payment Element adapter', () => {
     expect(await a.resolveSetup('seti_ok')).toEqual({ customerRef: 'cus_1', methodRef: 'pm_1', label: 'Visa card ending 4242', accountId: 'acc-1' });
     const { f: f3 } = fakeStripe({ 'payment_intents/': { status: 'requires_payment_method', amount: 900, last_payment_error: { code: 'card_declined' }, metadata: { payment_id: 'pay-2' } } });
     expect((await new StripeAdapter('sk_test_x', 'w', 300, f3).paymentStatus('pi_2')).status).toBe('open'); // declined once, can still retry
+    const { f: f4, calls: c4 } = fakeStripe({ 'payment_intents/search': { data: [{ id: 'pi_found' }] } });
+    const id = '470ed259-43f0-4d4b-bf19-309c1a0f396a';
+    expect(await new StripeAdapter('sk_test_x', 'w', 300, f4).findPaymentRef(id)).toBe('pi_found');
+    expect(decodeURIComponent(c4[0].path)).toContain(`metadata['payment_id']:'${id}'`);
+    expect(await new StripeAdapter('sk_test_x', 'w', 300, f4).findPaymentRef("x' OR 1")).toBeUndefined();
     const { f: f2 } = fakeStripe({ 'setup_intents/': { status: 'requires_payment_method', customer: 'cus_1', payment_method: null } });
     await expect(new StripeAdapter('sk_test_x', 'w', 300, f2).resolveSetup('seti_no')).rejects.toThrow(/not complete/);
   });

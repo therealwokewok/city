@@ -53,16 +53,17 @@ export async function recordCounterPayment(c: pg.PoolClient, actor: string, p: {
 export async function settleFromEvent(c: pg.PoolClient, provider: string, ev: PaymentEvent): Promise<
   'duplicate' | 'ignored' | 'unknown_payment' | 'amount_mismatch' | 'paid' | 'failed'> {
   if (ev.type === 'ignored') return 'ignored';
+  const p = (await c.query(
+    `select * from payments where provider = $1 and (provider_ref = $2 or id::text = $3) for update`,
+    [provider, ev.providerRef ?? null, ev.paymentId ?? null])).rows[0];
+  // Money that really arrived is always posted, even if an earlier event made us think the payment had failed.
+  // An event that changes nothing is not remembered, so the processor can send it again later if it needs to.
+  if (p && (p.status === 'succeeded' || (p.status === 'failed' && ev.type !== 'paid'))) return 'duplicate';
   const seen = await c.query(
     `insert into webhook_events (city_id, provider, event_id) values (app_city(), $1, $2) on conflict do nothing returning event_id`,
     [provider, ev.eventId]);
   if (!seen.rows[0]) return 'duplicate';
-  const p = (await c.query(
-    `select * from payments where provider = $1 and (provider_ref = $2 or id::text = $3) for update`,
-    [provider, ev.providerRef ?? null, ev.paymentId ?? null])).rows[0];
   if (!p) { await audit(c, null, 'payment.unknown', { event_id: ev.eventId }); return 'unknown_payment'; }
-  // Money that really arrived is always posted, even if an earlier event made us think the payment had failed.
-  if (p.status === 'succeeded' || (p.status === 'failed' && ev.type !== 'paid')) return 'duplicate';
   if (ev.type === 'failed') {
     await c.query(`update payments set status = 'failed', completed_at = now() where id = $1`, [p.id]);
     await audit(c, null, 'payment.failed', { payment_id: p.id });

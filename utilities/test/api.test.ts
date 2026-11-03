@@ -227,7 +227,9 @@ describe('payments', () => {
     const r = await call('res1', 'POST', `/api/resident/accounts/${S.accounts.a1}/pay`, { amount_cents: 5000 });
     expect(r.status).toBe(200);
     expect(r.json.url).toContain(S.host);
-    pid = (await owner.query(`select id from payments where account_id = $1 and status = 'pending'`, [S.accounts.a1])).rows[0].id;
+    const row = (await owner.query(`select id, provider_ref from payments where account_id = $1 and status = 'pending'`, [S.accounts.a1])).rows[0];
+    pid = row.id;
+    expect(row.provider_ref).toBe('fake_' + pid); // saved even though the resident cannot edit payment rows
   });
   it('rejects a webhook with a bad or old signature', async () => {
     expect((await hook({ id: 'evt_1', type: 'paid', payment_id: pid, amount: 5000 }, 'wrong-secret')).status).toBe(400);
