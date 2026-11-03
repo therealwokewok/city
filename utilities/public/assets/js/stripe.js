@@ -35,6 +35,11 @@ export async function mountPaymentElement(host, { publishableKey, clientSecret }
     },
   });
   const pe = elements.create('payment', { layout: 'tabs' });
-  await new Promise((resolve) => { pe.on('ready', resolve); pe.mount(host); });
+  await new Promise((resolve, reject) => {
+    const t = setTimeout(() => reject(new Error('The secure payment form is taking too long. Please try again, or call City Hall.')), 20000);
+    pe.on('ready', () => { clearTimeout(t); resolve(); });
+    pe.on('loaderror', (e) => { clearTimeout(t); reject(new Error(e?.error?.message || 'The secure payment form could not load.')); });
+    pe.mount(host);
+  });
   return { stripe, elements };
 }

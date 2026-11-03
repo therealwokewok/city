@@ -68,9 +68,9 @@ export async function account(id) {
         const fields = h('div', { class: 'pe-host' }); const msg = h('div', { role: 'alert' });
         const save = h('button', { class: 'btn', type: 'submit' }, 'Save and turn on autopay');
         const f = h('form', { novalidate: true }, h('p', {}, 'Type the card or bank account to use. Stripe keeps it, not the city.'), fields, msg, h('div', { class: 'actions' }, save));
-        autoBtn.hidden = true; fill(autoMsg, h('p', { class: 'loading' }, 'Loading the secure form...'));
+        autoBtn.hidden = true; fill(autoMsg, f); save.disabled = true;
         const { stripe, elements } = await mountPaymentElement(fields, { publishableKey: r.publishable_key, clientSecret: r.client_secret });
-        fill(autoMsg, f);
+        save.disabled = false;
         f.addEventListener('submit', async (ev) => {
           ev.preventDefault(); fill(msg);
           const res = await busy(save, 'Saving...', () => stripe.confirmSetup({ elements, redirect: 'if_required', confirmParams: { return_url: r.return_url } }));
@@ -190,11 +190,14 @@ async function cardStep(host, form, r, cents) {
   const card = h('form', { class: 'card', novalidate: true }, h('h2', {}, `Paying ${money(cents)}`),
     h('p', { class: 'hint' }, 'Type your card, or choose "US bank account" to pay from checking or savings. These boxes are run by Stripe, the city\'s payment company, so your details go straight to them. The city never sees or keeps them.'),
     fields, msg, h('div', { class: 'actions' }, payBtn, back));
+  // Stripe draws its fields only into a box that is already on the page, so show the card first.
   form.hidden = true;
-  fill(host, h('p', { class: 'loading' }, 'Loading the secure payment form...'));
-  const { stripe, elements } = await mountPaymentElement(fields, { publishableKey: r.publishable_key, clientSecret: r.client_secret }).catch((e) => { form.hidden = false; fill(host); throw e; });
+  const loadingNote = h('p', { class: 'loading' }, 'Loading the secure payment form...');
+  fields.before(loadingNote); payBtn.disabled = true;
   fill(host, card);
   card.querySelector('h2').setAttribute('tabindex', '-1'); card.querySelector('h2').focus();
+  const { stripe, elements } = await mountPaymentElement(fields, { publishableKey: r.publishable_key, clientSecret: r.client_secret }).catch((e) => { form.hidden = false; fill(host); throw e; });
+  loadingNote.remove(); payBtn.disabled = false;
   back.addEventListener('click', () => { fill(host); form.hidden = false; });
   card.addEventListener('submit', async (e) => {
     e.preventDefault(); fill(msg);
