@@ -152,17 +152,35 @@ export async function grantRole(c: pg.PoolClient, actor: string, actorRoles: str
   await audit(c, actor, 'role.grant', { user_id: userId, role });
 }
 
+/** True when this user is the only active city administrator. The city must never be left without one. */
+async function lastCityAdmin(c: pg.PoolClient, userId: string) {
+  const r = await c.query(`select user_id from user_roles r join users u on u.id = r.user_id where r.role = 'city_admin' and u.active`);
+  return r.rows.length === 1 && r.rows[0].user_id === userId;
+}
+async function isCityAdmin(c: pg.PoolClient, userId: string) {
+  return !!(await c.query(`select 1 from user_roles where user_id = $1 and role = 'city_admin'`, [userId])).rows[0];
+}
+
 export async function revokeRole(c: pg.PoolClient, actor: string, actorRoles: string[], userId: string, role: string) {
   if (userId === actor) throw forbid('You cannot change your own roles');
   if (!canGrant(actorRoles, role)) throw forbid('You cannot revoke that role');
   await assertUserHere(c, userId);
+  if (role === 'city_admin') {
+    // A site administrator names the first one and never removes one; otherwise they could swap in their own.
+    if (!actorRoles.includes('city_admin')) throw forbid('Only a city administrator can remove a city administrator');
+    if (await lastCityAdmin(c, userId)) throw bad('This is the only city administrator. Add another one first.');
+  }
   await c.query('delete from user_roles where user_id = $1 and role = $2', [userId, role]);
   await audit(c, actor, 'role.revoke', { user_id: userId, role });
 }
 
-export async function deactivateUser(c: pg.PoolClient, actor: string, userId: string) {
+export async function deactivateUser(c: pg.PoolClient, actor: string, actorRoles: string[], userId: string) {
   if (userId === actor) throw forbid('You cannot deactivate yourself');
   await assertUserHere(c, userId);
+  if (await isCityAdmin(c, userId)) {
+    if (!actorRoles.includes('city_admin')) throw forbid('Only a city administrator can turn off a city administrator');
+    if (await lastCityAdmin(c, userId)) throw bad('This is the only city administrator. Add another one first.');
+  }
   await c.query('update users set active = false where id = $1', [userId]);
   await c.query('update sessions set revoked = true where user_id = $1', [userId]);
   await audit(c, actor, 'user.deactivate', { user_id: userId });
@@ -172,6 +190,8 @@ export async function deactivateUser(c: pg.PoolClient, actor: string, userId: st
 export async function openDispute(c: pg.PoolClient, actor: string, billId: string, reason: string) {
   const b = await c.query('select id, account_id from bills where id = $1', [billId]); // RLS: only your own posted bills
   if (!b.rows[0]) throw notFound('Bill not found');
+  const open = await c.query(`select 1 from disputes where bill_id = $1 and status = 'open'`, [billId]);
+  if (open.rows[0]) throw bad('You already sent a question about this bill. City Hall will get back to you.');
   const r = await c.query(
     `insert into disputes (city_id, bill_id, account_id, opened_by, reason) values (app_city(), $1, $2, $3, $4) returning id`,
     [billId, b.rows[0].account_id, actor, reason.trim()],
@@ -217,6 +237,7 @@ export async function createServiceRequest(c: pg.PoolClient, actor: string, r: N
     if (!link.rows[0]) throw forbid('That account is not linked to you.');
     const open = await c.query(`select count(*)::int as n from service_requests where requested_by = $1 and account_id = $2 and kind = $3 and status in ('open','scheduled')`, [actor, r.account_id, r.kind]);
     if (open.rows[0].n > 0 && r.kind !== 'leak') throw bad('You already have this request open. We will contact you soon.');
+    if (r.kind === 'leak' && open.rows[0].n >= 3) throw bad('You already have leak reports open. Please call City Hall if it is urgent.');
   } else {
     const open = await c.query(`select count(*)::int as n from service_requests where requested_by = $1 and kind = 'start' and status in ('open','scheduled')`, [actor]);
     if (open.rows[0].n >= 3) throw bad('You already have several new service requests open. Please call City Hall.');

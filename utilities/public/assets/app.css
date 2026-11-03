@@ -262,3 +262,4 @@ main.wide ~ .foot { padding-left: max(1rem, calc((100% - var(--maxw-wide)) / 2 +
 }
 details.bill-lines summary { cursor: pointer; color: var(--primary); text-decoration: underline; font-size: 1rem; min-height: 2.75rem; display: flex; align-items: center; }
 details.bill-lines ul { margin: .25rem 0 .5rem; padding-left: 1.25rem; font-size: 1rem; }
+.logo-preview { max-height: 4rem; background: #fff; padding: .25rem; }

@@ -142,3 +142,22 @@ test('staff: clerk changes quantity of a service and adds a meter on an existing
   await expect(page.getByText(/meter MO-W-2002/)).toBeVisible();
   expect((await axe(page)).violations).toEqual([]);
 });
+
+test('staff: clerk adds late charges from the screen, and an approver reverses an entry', async ({ page }) => {
+  await signIn(page, 'clerk@example.test');
+  await page.getByRole('link', { name: 'Bill runs' }).first().click();
+  await page.getByRole('button', { name: 'Add late charges for bills past due' }).click();
+  await page.getByRole('button', { name: 'Yes, add them' }).click();
+  await expect(page.getByRole('status').filter({ hasText: /Added \d+ late charge/ })).toBeVisible();
+
+  await page.context().clearCookies();
+  await signIn(page, 'approver@example.test');
+  await page.getByRole('link', { name: 'Find an account' }).click();
+  await page.getByLabel('Find a customer').fill('1002');
+  await page.getByRole('link', { name: /Sam Sample/ }).click();
+  await page.getByRole('button', { name: /^Reverse this/ }).first().click();
+  await page.getByLabel('Why').fill('Typed on the wrong account');
+  await page.getByRole('button', { name: 'Reverse it' }).click();
+  await safetyCheck(page, 'approver@example.test');
+  await expect(page.getByRole('row').filter({ hasText: 'Reversal' }).first()).toBeVisible();
+});

@@ -1,29 +1,46 @@
-# Optional: keeps the app on the newest published release. Use it instead of docker-compose.yml:
+# Optional: keeps the app on a published release and backs the database up every night.
 #   docker compose -f docker-compose.auto-update.yml up -d
-# It runs the published image (not a local build), checks once a day, and runs database migrations
-# each time the app container starts. Take database backups. See docs/updates.md.
+# Put a reverse proxy with HTTPS in front (deploy/Caddyfile is an example); the app listens on this computer only.
+# Updates: change APP_VERSION in .env to the release you want, then run the command above again. The previous
+# image stays on disk, so going back is the same step with the old version. See docs/updates.md.
 services:
   db:
-    image: postgres:16
+    image: postgres:16.11
     environment:
       POSTGRES_USER: utilities_owner
       POSTGRES_PASSWORD: ${DB_OWNER_PASSWORD:?set DB_OWNER_PASSWORD}
       POSTGRES_DB: utilities
     volumes: ["dbdata:/var/lib/postgresql/data"]
     healthcheck: { test: ["CMD-SHELL", "pg_isready -U utilities_owner"], interval: 3s, retries: 20 }
+    restart: unless-stopped
+    logging: { driver: json-file, options: { max-size: "10m", max-file: "3" } }
   app:
-    image: ghcr.io/therealwokewok/city-utilities:latest
-    labels: ["com.centurylinklabs.watchtower.enable=true"]
+    image: ghcr.io/therealwokewok/city-utilities:${APP_VERSION:?set APP_VERSION to a release such as 1.4.0}
     env_file: .env
     environment:
       RUN_MIGRATIONS_ON_START: "1"
+      DATABASE_URL: postgres://utilities_app:${APP_DB_PASSWORD:?set APP_DB_PASSWORD}@db:5432/utilities
       OWNER_DATABASE_URL: postgres://utilities_owner:${DB_OWNER_PASSWORD}@db:5432/utilities
-    ports: ["8080:8080"]
+    ports: ["127.0.0.1:8080:8080"]
     restart: unless-stopped
     depends_on: { db: { condition: service_healthy } }
-  updater:
-    image: containrrr/watchtower
-    command: ["--cleanup", "--label-enable", "--interval", "86400"]
-    volumes: ["/var/run/docker.sock:/var/run/docker.sock"]
+    logging: { driver: json-file, options: { max-size: "10m", max-file: "3" } }
+  # A full copy of the database every night, kept for 30 days, in the "backups" volume. Copy that volume
+  # somewhere off this computer (see docs/updates.md, "Backups and restore").
+  backup:
+    image: postgres:16.11
+    environment:
+      PGPASSWORD: ${DB_OWNER_PASSWORD}
+    volumes: ["backups:/backups"]
+    entrypoint: ["sh", "-c"]
+    command:
+      - |
+        while true; do
+          pg_dump -h db -U utilities_owner -d utilities -Fc -f "/backups/utilities-$(date -u +%Y%m%d-%H%M).dump" && \
+          find /backups -name 'utilities-*.dump' -mtime +30 -delete
+          sleep 86400
+        done
     restart: unless-stopped
-volumes: { dbdata: {} }
+    depends_on: { db: { condition: service_healthy } }
+    logging: { driver: json-file, options: { max-size: "5m", max-file: "2" } }
+volumes: { dbdata: {}, backups: {} }

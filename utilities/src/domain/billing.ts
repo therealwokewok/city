@@ -278,7 +278,12 @@ export async function createCharge(c: pg.PoolClient, actor: string, ch: {
   if (!/^[A-Z0-9]{1,6}$/.test(ch.code)) throw bad('Charge code is 1 to 6 capital letters or numbers');
   const acct = await c.query('select id from accounts where id = $1', [ch.account_id]);
   if (!acct.rows[0]) throw notFound('Account not found');
-  if (Math.abs(ch.amount_cents) > s.approval_limit_cents) {
+  // One large charge, or many small credits adding up to one, both need a second person.
+  const unbilled = Number((await c.query(
+    `select coalesce(sum(amount_cents), 0) as t from extra_charges where account_id = $1 and active and (recurring or billed_run_id is null) and created_by = $2`,
+    [ch.account_id, actor])).rows[0].t);
+  const pile = ch.amount_cents < 0 ? Math.abs(Math.min(unbilled, 0) + ch.amount_cents) : Math.abs(ch.amount_cents);
+  if (Math.abs(ch.amount_cents) > s.approval_limit_cents || pile > s.approval_limit_cents) {
     const id = await requestApproval(c, actor, { kind: 'charge', account_id: ch.account_id, amount_cents: ch.amount_cents,
       code: ch.code, reason: ch.description });
     return { approval_id: id, status: 'needs_approval' as const };

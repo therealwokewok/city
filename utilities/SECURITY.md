@@ -36,8 +36,8 @@ Please report vulnerabilities privately through GitHub's "Report a vulnerability
 
 1. Use your own database, your own Stripe account (owned by the city only), your own email sender.
 2. Set strong values in `.env`; run migrations as the owner, run the app as `utilities_app`.
-3. Serve only over HTTPS. Turn on database backups with point-in-time recovery and test a restore.
-4. Remove the builder's and any test accounts. Make sure at least two people hold the city admin role.
+3. Serve only over HTTPS with one proxy in front (`TRUST_PROXY=1`). Use `docker-compose.auto-update.yml`, copy its nightly backups off the computer, and test a restore (docs/updates.md).
+4. Remove the builder's and any test accounts. Make sure at least two people hold the city admin role (a city administrator can add another).
 5. Set the real rates, penalty rules and approval limit under Settings, and print a test page on your real paper.
 6. Run the sign-in, link, bill, approve, pay, and refund path once end to end with Stripe in test mode.
 
@@ -46,8 +46,8 @@ Please report vulnerabilities privately through GitHub's "Report a vulnerability
 - Everyone can sign in with an emailed code. Passkeys and OpenID Connect single sign-on are optional. Changing a risky setting still asks for an emailed code, even after a passkey or single sign-on.
 - Anyone who can read a person's email can sign in as them, so staff email accounts should have their own two-step sign-in turned on.
 - The screens are tested in Chrome only so far, with automated accessibility scans. Firefox, Safari, Edge and a real screen reader still need a pass (see the README).
-- Autopay (see docs/autopay.md for scheduling) talks to Stripe's off-session payment API. It is covered by tests against a fake processor and by checking the request shapes, but it has not been run against a live Stripe account. Try it with a Stripe test key first.
+- Autopay (see docs/autopay.md for scheduling) talks to Stripe's off-session payment API. It has been run end to end against a Stripe test account (card saved, bill collected once, webhook settled), not a live one. Try it with the city's own test keys before going live.
 - Single sign-on has been tested against a fake provider only. Try it with your own provider before relying on it.
 - Refunds are recorded here after a second person approves. The money is paid back by the city outside this program.
-- No independent security review has been done. Have someone you trust read `001_init.sql`, `004_guards.sql` and `server.ts`.
+- Three independent code reviews were done in November 2026 (docs/security-review.md). Every finding was fixed and is kept closed by a test. That is not the same as a penetration test of a running installation; have one done before real money moves.
 - Demo mode (`demo_mode` setting) blocks real payment processors in `src/settings.ts` `assertMoneyAllowed`, covered by `demo.test.ts`. It is a guard against mistakes, not a security boundary: the person who can turn it off is a settings administrator, and the change is written to the activity log.

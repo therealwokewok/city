@@ -39,9 +39,16 @@ export async function runAutopay(c: pg.PoolClient, adapter: PaymentsAdapter, asO
      where b.status = 'posted' and b.due_date <= $1::date and not exists (select 1 from autopay_attempts t where t.bill_id = b.id)
      order by a.account_number`, [asOf])).rows;
   const out = { charged: 0, failed: 0, skipped: 0 };
+  // What each account still owes once payments already on their way (an earlier bank charge, say) are counted.
+  const remaining = new Map<string, number>();
   for (const d of due) {
-    // charge what is actually owed, never more than the bill, and nothing when the account has no balance
-    const owed = Math.min(Number(d.total_cents), Number(await balance(c, d.account_id)));
+    if (!remaining.has(d.account_id)) {
+      const pending = Number((await c.query(`select coalesce(sum(amount_cents), 0) as p from payments where account_id = $1 and status = 'pending'`, [d.account_id])).rows[0].p);
+      remaining.set(d.account_id, Number(await balance(c, d.account_id)) - pending);
+    }
+    // charge what is actually owed, never more than the bill, and nothing when the account has no balance left
+    const owed = Math.min(Number(d.total_cents), remaining.get(d.account_id)!);
+    remaining.set(d.account_id, remaining.get(d.account_id)! - Math.max(owed, 0));
     const pay = owed >= 100 ? await createPendingPayment(c, null as unknown as string, d.account_id, owed, adapter.name) : null;
     if (!pay) { out.skipped += 1; continue; }
     await c.query('insert into autopay_attempts (bill_id, city_id, payment_id) values ($1, app_city(), $2)', [d.bill_id, pay.id]);

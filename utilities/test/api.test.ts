@@ -38,7 +38,7 @@ async function stepup(u: string) {
 
 beforeAll(async () => {
   S = await seedCity('api'); T = await seedCity('apiother');
-  app = await buildApp({ email: mail, payments: pay });
+  app = await buildApp({ quiet: true, email: mail, payments: pay });
   for (const u of ['admin', 'siteadmin', 'clerk', 'clerk2', 'approver', 'reader', 'cashier', 'auditor', 'cs', 'res1', 'res2']) {
     sessions[u] = await signIn(S, S.users[u].email);
   }
@@ -462,5 +462,24 @@ describe('boxes and lines on bills', () => {
       { source: 'bill.lines', x: 0.5, y: 3.95, width: 7.5, height: 3.9 }, { source: 'city.phone', x: 1, y: 1, label: 'Call ' }] });
     const buf = await renderBills(p, [{ city: { name: 'C', return_address: '', remit_to: '', office_hours: '', phone: '555' }, account: { name: 'A', number: '1', service_address: 'S', mailing_address: null }, period: 'Oct', due: 'Nov', total_cents: 100, lines: [{ code: 'W', description: 'Water', amount_cents: 100, units: 10, unit: 'gallons' }] }]);
     expect(buf.subarray(0, 5).toString()).toBe('%PDF-');
+  });
+});
+
+describe('reversing a ledger entry over HTTP', () => {
+  it('an approver can reverse an entry once, with a safety check; others cannot', async () => {
+    await call('cashier', 'POST', '/api/staff/payments/counter', { account_id: S.accounts.a2, amount_cents: 700, method: 'cash' });
+    const d = await call('approver', 'GET', `/api/staff/accounts/${S.accounts.a2}`);
+    const entry = d.json.ledger.find((l: any) => l.kind === 'payment' && Number(l.amount_cents) === -700);
+    expect(entry.reversed).toBe(false);
+    expect((await call('cashier', 'POST', `/api/staff/ledger/${entry.id}/reverse`, { reason: 'typo' })).status).toBe(403);
+    expect((await call('clerk', 'POST', `/api/staff/ledger/${entry.id}/reverse`, { reason: 'typo' })).status).toBe(403);
+    sessions.approver2 = await signIn(S, S.users.approver2.email); // a fresh session has no safety check yet
+    expect((await call('approver2', 'POST', `/api/staff/ledger/${entry.id}/reverse`, { reason: 'typo' })).json.error).toBe('stepup_required');
+    await stepup('approver');
+    expect((await call('approver', 'POST', `/api/staff/ledger/${entry.id}/reverse`, { reason: 'Typed on the wrong account' })).status).toBe(200);
+    expect((await call('approver', 'POST', `/api/staff/ledger/${entry.id}/reverse`, { reason: 'again' })).status).toBe(400);
+    const after = await call('approver', 'GET', `/api/staff/accounts/${S.accounts.a2}`);
+    expect(after.json.ledger.find((l: any) => l.id === entry.id).reversed).toBe(true);
+    expect(after.json.ledger[0]).toMatchObject({ kind: 'reversal', amount_cents: 700 });
   });
 });

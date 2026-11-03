@@ -10,7 +10,7 @@ import { owner, seedCity, Seed } from './helpers.js';
 let S: Seed; let app: Awaited<ReturnType<typeof buildApp>>;
 beforeAll(async () => {
   S = await seedCity('demo');
-  app = await buildApp({ email: new MemoryEmail(), payments: new FakePaymentsAdapter() });
+  app = await buildApp({ quiet: true, email: new MemoryEmail(), payments: new FakePaymentsAdapter() });
 });
 afterAll(async () => { await app.close(); await closePool(); await owner.end(); });
 const get = (url: string) => app.inject({ method: 'GET', url, headers: { host: S.host } });
@@ -22,7 +22,7 @@ describe('demo mode', () => {
   });
   it('shows the flag, hides the site from search engines, and says so in robots.txt', async () => {
     await owner.query(`update cities set settings = settings || '{"demo_mode": true}' where id = $1`, [S.cityId]);
-    const app2 = await buildApp({ email: new MemoryEmail(), payments: new FakePaymentsAdapter() }); // fresh 30 second memory
+    const app2 = await buildApp({ quiet: true, email: new MemoryEmail(), payments: new FakePaymentsAdapter() }); // fresh 30 second memory
     const r = await app2.inject({ method: 'GET', url: '/api/city', headers: { host: S.host } });
     expect(r.json().demo).toBe(true);
     expect(r.headers['x-robots-tag']).toBe('noindex, nofollow');

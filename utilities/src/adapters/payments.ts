@@ -208,7 +208,8 @@ export function signStripe(raw: string, secret: string, t = Math.floor(Date.now(
 // ---------- fake processor for local demos and tests ----------
 export class FakePaymentsAdapter implements PaymentsAdapter {
   name = 'fake';
-  secret = 'fake-secret';
+  // A fresh random secret each start, so nobody can forge a "paid" event from outside the process.
+  secret = crypto.randomBytes(24).toString('hex');
   charges: { paymentId: string; amountCents: number; customerRef: string; methodRef: string }[] = [];
   failCharges = false;
   async createSetup(r: SetupRequest): Promise<ClientStart> { return { url: `${r.successUrl}&fake=1`, ref: 'fake_setup_' + r.accountId }; }

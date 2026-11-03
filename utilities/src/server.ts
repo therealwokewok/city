@@ -18,7 +18,7 @@ import { checkCode, createSession, loadSession, markStepUp, requestCode, require
 import { canGrant, permsFor, ROLES } from './permissions.js';
 import { bad, createAccount, createRate, createStaffUser, deactivateUser, forbid, grantRole, HttpError, linkAccount, notFound,
   createServiceRequest, setMeterActive, REQUEST_KINDS, updateServiceRequest, openDispute, regenLinkCode, resolveDispute, revokeRole, setAccountService, setServiceEnabled, addMeter } from './domain/accounts.js';
-import { approveRun, balance, billsWithStatus, calculateRun, createCharge, createRun, decideApproval, requestApproval, reviewReading, runPenalties,
+import { approveRun, balance, billsWithStatus, calculateRun, createCharge, createRun, decideApproval, requestApproval, reverseEntry, reviewReading, runPenalties,
   shutoffList, submitReading } from './domain/billing.js';
 import { cancelArrangement, currentArrangement, isoDate as dateText, decideArrangement, requestArrangement } from './domain/arrangements.js';
 import { previewCorrection, requestCorrection } from './domain/corrections.js';
@@ -42,7 +42,8 @@ export interface AppDeps {
   checkUpdate?: (repo: string) => Promise<UpdateInfo>;
   signInLimitScale?: number;   // multiplies the per-IP sign-in limits. Only the browser-test server sets this; leave it out
   scheme?: 'https' | 'http';
-  trustProxy?: boolean;
+  trustProxy?: boolean | number; // true trusts every hop; a number trusts that many proxies in front
+  quiet?: boolean;             // no logging at all; the tests set this
 }
 
 const parse = <T extends ZodTypeAny>(schema: T, data: unknown): z.infer<T> => {
@@ -54,7 +55,11 @@ const uuid = z.string().uuid();
 const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 
 export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
-  const app = Fastify({ trustProxy: deps.trustProxy ?? false, bodyLimit: 1_000_000 });
+  // Warnings and errors go to the log so an operator can see why a "something went wrong" happened. Never request bodies.
+  // A number means "trust that many proxies in front and no more", so a client cannot write its own address into X-Forwarded-For.
+  const hops = deps.trustProxy;
+  const trustProxy = typeof hops === 'number' ? (_addr: string, i: number) => i < hops : hops ?? false;
+  const app = Fastify({ trustProxy, bodyLimit: 1_000_000, logger: deps.quiet ? false : { level: 'warn' }, disableRequestLogging: true });
   await app.register(cookie);
   const cookieName = deps.secureCookies ? '__Host-utilities' : 'utilities';
   const scheme = deps.scheme ?? (deps.secureCookies ? 'https' : 'http');
@@ -66,13 +71,15 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   });
 
   // ---------- which city is this? ----------
-  const hostCache = new Map<string, { id: string | null; at: number }>();
+  const hostCache = new Map<string, { id: string; at: number }>();
   async function cityFor(host: string): Promise<string | null> {
+    // Only names that could be a host are looked up at all; misses are not remembered, so junk cannot fill memory.
+    if (!/^[a-z0-9.-]{1,253}$/.test(host)) return null;
     const hit = hostCache.get(host);
     if (hit && Date.now() - hit.at < 30_000) return hit.id;
     const r = await getPool().query('select city_by_host($1) as id', [host]);
     const id = (r.rows[0]?.id as string | null) ?? null;
-    hostCache.set(host, { id, at: Date.now() });
+    if (id) { if (hostCache.size > 500) hostCache.clear(); hostCache.set(host, { id, at: Date.now() }); }
     return id;
   }
 
@@ -97,6 +104,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   }
 
   app.addHook('onRequest', async (req, reply) => {
+    if (req.url === '/healthz') return; // a probe by IP or localhost belongs to no city
     const raw = (req.headers.host ?? '').toLowerCase().replace(/:\d+$/, '');
     const id = await cityFor(raw);
     if (!id) return reply.code(404).type('text/plain').send('Not found');
@@ -431,6 +439,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
     const { id } = parse(z.object({ id: uuid }), req.params);
     const { amount_cents } = parse(z.object({ amount_cents: z.number().int() }), req.body);
     const ctx = ctxOf(req);
+    if (tooMany('pay:' + req.auth!.userId, 20, 3_600_000)) throw new HttpError(429, 'That is a lot of payment attempts. Please wait a while or call City Hall.');
     const pending = await tx(ctx, async (c) => {
       await assertMoneyAllowed(c, deps.payments);
       const p = await createPendingPayment(c, me(req), id, amount_cents, deps.payments.name);
@@ -473,6 +482,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   app.post('/api/resident/accounts/:id/autopay/start', async (req) => {
     needRole(req, 'resident');
     const { id } = parse(z.object({ id: uuid }), req.params);
+    if (tooMany('autopay:' + req.auth!.userId, 10, 3_600_000)) throw new HttpError(429, 'Please wait a while before trying autopay again, or call City Hall.');
     await tx(ctxOf(req), async (c) => { await assertMoneyAllowed(c, deps.payments); if (!(await c.query('select 1 from accounts where id = $1', [id])).rows[0]) throw notFound(); });
     const base = `${scheme}://${req.publicHost}`;
     try {
@@ -506,7 +516,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   });
   // Before charging: look at what the resident typed (card or bank, credit or debit) and show the exact total.
   const pendingPayment = async (req: FastifyRequest, id: string) => {
-    const sys: Ctx = { cityId: req.cityId, userId: null, perms: ['payments.settle', 'accounts.read'] };
+    const sys: Ctx = { cityId: req.cityId, userId: null, perms: ['payments.settle', 'ledger.post', 'accounts.read'] };
     const p = await tx(sys, async (c) => (await c.query('select id, account_id, status, amount_cents from payments where id = $1', [id])).rows[0]);
     if (!p) throw notFound();
     await tx(ctxOf(req), async (c) => { if (!(await c.query('select 1 from accounts where id = $1', [p.account_id])).rows[0]) throw notFound(); });
@@ -537,8 +547,19 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
     const { p, sys } = await pendingPayment(req, id);
     // The fee is worked out again here from the token itself; nothing the browser says about it is trusted.
     const q = await quoteFor(req, Number(p.amount_cents), confirmation_token);
-    await tx(sys, (c) => c.query('update payments set fee_cents = $2 where id = $1 and status = $3', [id, q.fee_cents, 'pending']));
-    const acct = await tx(sys, async (c) => (await c.query('select account_number from accounts where id = $1', [p.account_id])).rows[0]);
+    // One charge per payment. The row is locked while the fee is written, and a payment that already has a
+    // processor charge in flight cannot be charged again from a second tab or a double click. A declined try
+    // clears the reference so another card can be tried.
+    const acct = await tx(sys, async (c) => {
+      const row = (await c.query('select provider_ref, status from payments where id = $1 for update', [id])).rows[0];
+      if (!row || row.status !== 'pending') throw bad('This payment is already finished. Start a new one if you need to.');
+      if (row.provider_ref) {
+        const st = deps.payments.paymentStatus ? await deps.payments.paymentStatus(row.provider_ref).catch(() => null) : null;
+        if (!st || st.status === 'paid' || st.status === 'processing') throw bad('This payment is already being taken. Please wait a moment, then check your account.');
+      }
+      await c.query('update payments set fee_cents = $2, provider_ref = null where id = $1', [id, q.fee_cents]);
+      return (await c.query('select account_number from accounts where id = $1', [p.account_id])).rows[0];
+    });
     let r;
     try {
       r = await deps.payments.chargeWithToken!({ paymentId: id, totalCents: q.total_cents, feeCents: q.fee_cents, token: confirmation_token,
@@ -549,8 +570,11 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
       const msg = e instanceof Error ? e.message.replace(/^Stripe error: /, '') : '';
       throw new HttpError(402, msg && msg.length < 200 ? msg : 'The card or bank did not accept the payment. Nothing was charged.');
     }
-    // Each try makes its own processor payment; remember the newest one so the page can check on it.
     await tx(sys, (c) => c.query(`update payments set provider_ref = $2 where id = $1 and status = 'pending'`, [id, r.ref]));
+    if (r.status === 'succeeded') {
+      // Record it now rather than waiting for the webhook, so a second try cannot slip in meanwhile.
+      await tx(sys, (c) => settleFromEvent(c, deps.payments.name, { eventId: `confirm_${r.ref}`, type: 'paid', providerRef: r.ref, paymentId: id, amountCents: q.total_cents, method: q.method.type === 'ach' ? 'ach' : 'card' }));
+    }
     if (r.status === 'requires_action') return { status: 'requires_action', client_secret: r.clientSecret };
     return { status: r.status };
   });
@@ -664,7 +688,9 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
     return tx(ctxOf(req), async (c) => {
       const a = (await c.query('select id, city_id, account_number, name, service_address, mailing_address, status, paperless, created_at from accounts where id = $1', [id])).rows[0];
       if (!a) throw notFound();
-      const ledger = (await c.query('select id, kind, amount_cents, memo, created_at from ledger_entries where account_id = $1 order by id desc limit 100', [id])).rows;
+      const ledger = (await c.query(
+        `select l.id, l.kind, l.amount_cents, l.memo, l.created_at, exists (select 1 from ledger_entries r where r.reverses_id = l.id) as reversed
+         from ledger_entries l where l.account_id = $1 order by l.id desc limit 100`, [id])).rows;
       const services = (await c.query(
         `select s.service_code as code, sv.name, sv.kind, s.enabled, s.quantity from account_services s
          join services sv on sv.city_id = s.city_id and sv.code = s.service_code where s.account_id = $1 order by sv.name`, [id])).rows;
@@ -781,6 +807,14 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
       amount_cents: z.number().int(), recurring: z.boolean().optional(),
     }), req.body);
     return tx(ctxOf(req), (c) => createCharge(c, me(req), b));
+  });
+  // Undo a mistaken entry with an opposite one. Approvers only, with a safety check; the original is never touched.
+  app.post('/api/staff/ledger/:id/reverse', async (req) => {
+    need(req, 'approvals.decide'); requireStepUp(req.auth!);
+    const { id } = parse(z.object({ id: z.string().regex(/^\d{1,15}$/) }), req.params);
+    const { reason } = parse(z.object({ reason: z.string().min(1).max(500) }), req.body);
+    await tx(ctxOf(req), (c) => reverseEntry(c, me(req), Number(id), reason.trim()));
+    return { ok: true };
   });
   app.post('/api/staff/adjustments', async (req) => {
     need(req, 'adjustments.request');
@@ -918,7 +952,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   app.post('/api/staff/users/:id/deactivate', async (req) => {
     need(req, 'users.manage'); requireStepUp(req.auth!);
     const { id } = parse(z.object({ id: uuid }), req.params);
-    await tx(ctxOf(req), (c) => deactivateUser(c, me(req), id));
+    await tx(ctxOf(req), (c) => deactivateUser(c, me(req), req.auth!.roles, id));
     return { ok: true };
   });
 

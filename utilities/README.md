@@ -35,8 +35,8 @@ Services a city can turn on: water, sewer, electric, trash, security light, natu
 ## Try it
 
 ```bash
-docker compose up --build         # database, migrations, app on :8080
-docker compose exec app node dist/scripts/seed.js   # optional demo city
+docker compose up --build         # database, migrations, app on http://localhost:8080
+docker compose exec -e OWNER_DATABASE_URL=postgres://utilities_owner:dev@db:5432/utilities app node dist/scripts/seed.js   # optional demo city
 ```
 
 Without Docker: Node 22 and PostgreSQL 16, then `npm ci`, `npm run migrate`, `npm run seed`, `npm run dev`.
@@ -46,7 +46,7 @@ In development, sign-in codes print to the console and payments use a fake proce
 
 1. Create a database. Run `npm run migrate` as the owner account; run the app as `utilities_app`.
 2. `npm run bootstrap -- --name "City of Example" --state MO --host utilities.example.gov --admin clerk@example.gov`
-3. Put it behind HTTPS on its own subdomain. Fill in `.env` (see `.env.example`).
+3. Put it behind HTTPS on its own subdomain (the app listens on this computer only; `deploy/Caddyfile` is an example proxy). Fill in `.env` (see `.env.example`). Use `docker-compose.auto-update.yml`, which also backs the database up every night, and copy the backups off the computer.
 4. Work through the handoff gate in [SECURITY.md](SECURITY.md).
 5. The city creates **its own** Stripe account and keeps the keys. No platform fee is added by this software.
 
@@ -64,14 +64,14 @@ src/server.ts     HTTP API (every route names the permission it needs)
 src/printing.ts   bill, envelope and test-page PDFs
 public/           the web screens: plain JavaScript, no framework, no build step
 e2e/              browser tests (Playwright) with accessibility scans
-test/             108 tests, including role and tenant boundaries
+test/             unit and HTTP tests, including role, tenant and security boundaries
 packs/            starting values per state (a pack never sets rates)
 docs/             how updates work
 ```
 
 ## Updates
 
-Administration, Updates shows whether a newer version exists and lets the city choose where updates come from. It starts as `https://github.com/therealwokewok/city` and can be changed to any other GitHub address, such as a fork. Installing the update is up to whoever hosts the program, because a running program should never replace its own code. The host can make that automatic. See [docs/updates.md](docs/updates.md).
+Administration, Updates shows whether a newer version exists and lets the city choose which GitHub address it checks (a fork, say). Installing the update is up to whoever hosts the program, because a running program should never replace its own code: name the release in `.env` and restart. The ready-made compose file also takes a nightly database backup. See [docs/updates.md](docs/updates.md).
 
 ## Sign-in options
 

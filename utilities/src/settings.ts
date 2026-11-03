@@ -40,7 +40,7 @@ export function contrastOnWhite(hex: string): number {
   const lum = 0.2126 * ch[0] + 0.7152 * ch[1] + 0.0722 * ch[2];
   return 1.05 / (lum + 0.05);
 }
-export const GITHUB_REPO = /^https:\/\/github\.com\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
+export const GITHUB_REPO = /^https:\/\/github\.com\/[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})\/[A-Za-z0-9_](?:[A-Za-z0-9_.-]{0,99})$/;
 
 export const DEFAULT_SETTINGS: CitySettings = {
   penalty_bps: 1000, due_days: 15, shutoff_notice_days: 5, approval_limit_cents: 50000, tax_bps: 0,
@@ -65,6 +65,7 @@ export function validateSettings(input: Record<string, unknown>): Partial<CitySe
   for (const [k, v] of Object.entries(input)) {
     if (NUMERIC_KEYS.includes(k)) {
       if (typeof v !== 'number' || !Number.isFinite(v) || v < 0 || v > 1_000_000_000) throw new Error(`bad value for ${k}`);
+      if (k !== 'high_usage_factor' && !Number.isInteger(v)) throw new Error(`${k} must be a whole number`);
       out[k] = v;
     } else if (TEXT_KEYS.includes(k)) {
       if (typeof v !== 'string' || v.length > 500) throw new Error(`bad value for ${k}`);

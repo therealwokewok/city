@@ -80,6 +80,7 @@ export const runs = safe(async () => {
   const iso = (x) => `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, '0')}-${String(x.getDate()).padStart(2, '0')}`;
   let form = null;
   const autoBox = h('section', { class: 'card', 'aria-labelledby': 'auto-h' });
+  const lateBox = h('section', { class: 'card', 'aria-labelledby': 'late-h' });
   if (has('billing_clerk')) {
     const am = h('div', { role: 'status' });
     const ab = h('button', { class: 'btn secondary', type: 'button' }, 'Collect autopay for bills that are due');
@@ -89,6 +90,15 @@ export const runs = safe(async () => {
       try { const r = await busy(ab, 'Collecting...', () => api('POST', '/api/staff/autopay/run', {})); fill(am, h('p', { class: 'notice' }, `Started ${r.charged} payments. ${r.failed ? r.failed + ' could not be collected and those customers were emailed. ' : ''}${r.skipped ? r.skipped + ' skipped because nothing is owed.' : ''}`)); announce('Autopay done.'); } catch (e) { showError(am, e.message); }
     });
     fill(autoBox, h('h2', { id: 'auto-h' }, 'Autopay'), h('p', { class: 'hint' }, 'Run this on or after the due date. Payments finish a moment later and then appear on each account.'), am, h('div', { class: 'actions' }, ab));
+    // Late charges: once per bill, only after its due date, never for a day that has not come yet.
+    const lm = h('div', { role: 'status' });
+    const lb = h('button', { class: 'btn secondary', type: 'button' }, 'Add late charges for bills past due');
+    lb.addEventListener('click', async () => {
+      const ok = await confirmDialog({ title: 'Add late charges now?', body: 'Every bill that is past its due date and still unpaid gets the city\'s late charge, once. Bills on a payment plan the customer is keeping up with are skipped.', yes: 'Yes, add them', no: 'Not yet' });
+      if (!ok) return;
+      try { const r = await busy(lb, 'Adding...', () => api('POST', '/api/staff/penalties', { as_of: todayIso() })); fill(lm, h('p', { class: 'notice' }, `Added ${r.charged} late charge${r.charged === 1 ? '' : 's'} (${money(r.total_cents)}).${r.on_payment_plan ? ` ${r.on_payment_plan} skipped for payment plans.` : ''}`)); announce('Late charges done.'); } catch (e) { showError(lm, e.message); }
+    });
+    fill(lateBox, h('h2', { id: 'late-h' }, 'Late charges'), h('p', { class: 'hint' }, 'Run this after a due date has passed. A bill is only ever charged once, and running it again adds nothing.'), lm, h('div', { class: 'actions' }, lb));
   }
   if (has('billing_clerk')) {
     form = h('form', { class: 'card', novalidate: true },
@@ -102,7 +112,7 @@ export const runs = safe(async () => {
       catch (err) { showError(form, err.message); }
     });
   }
-  return h('div', {}, h('h1', {}, 'Bill runs'), form, has('billing_clerk') ? autoBox : null,
+  return h('div', {}, h('h1', {}, 'Bill runs'), form, has('billing_clerk') ? lateBox : null, has('billing_clerk') ? autoBox : null,
     h('h2', {}, 'Past and current runs'),
     rs.length ? h('ul', { class: 'list' }, rs.map((r) => h('li', {}, h('a', { class: 'row2', href: `#/staff/runs/${r.id}` }, h('span', {}, `${plainDate(r.period_start)} to ${plainDate(r.period_end)}`), h('span', { class: `status ${r.status === 'posted' ? 'ok' : 'warn'}` }, runLabel(r.status)))))) : h('p', { class: 'muted' }, 'No bill runs yet.'));
 });
@@ -413,7 +423,20 @@ export const account = safe(async (id) => {
         h('td', { 'data-label': 'Paid?' }, b.pay_status === 'paid' ? h('span', { class: 'status ok' }, 'Paid') : b.pay_status === 'partly_paid' ? h('span', { class: 'status warn' }, `Partly, ${money(b.left_cents)} left`) : h('span', { class: 'status warn' }, 'Not paid')))))) : h('p', { class: 'muted' }, 'No bills yet.'),
     h('h2', {}, 'History'),
     d.ledger.length ? h('table', { class: 'tbl' }, h('thead', {}, h('tr', {}, h('th', {}, 'Date'), h('th', {}, 'What'), h('th', {}, 'Amount'))),
-      h('tbody', {}, d.ledger.map((l) => h('tr', {}, h('td', { 'data-label': 'Date' }, plainDate(l.created_at)), h('td', { 'data-label': 'What' }, `${({ bill: 'Bill', payment: 'Payment', adjustment: 'Adjustment', charge: 'Charge', penalty: 'Late charge', refund: 'Refund', reversal: 'Reversal' })[l.kind] || l.kind}${l.memo ? ': ' + plainNote(l.memo) : ''}`), h('td', { 'data-label': 'Amount', class: 'amount' }, money(l.amount_cents)))))) : h('p', { class: 'muted' }, 'No activity yet.'));
+      h('tbody', {}, d.ledger.map((l) => h('tr', {}, h('td', { 'data-label': 'Date' }, plainDate(l.created_at)), h('td', { 'data-label': 'What' }, `${({ bill: 'Bill', payment: 'Payment', adjustment: 'Adjustment', charge: 'Charge', penalty: 'Late charge', refund: 'Refund', reversal: 'Reversal' })[l.kind] || l.kind}${l.memo ? ': ' + plainNote(l.memo) : ''}`,
+        has('approver') && l.kind !== 'reversal' && !l.reversed ? h('div', {}, h('button', { class: 'btn secondary small', type: 'button', 'aria-label': `Reverse this ${l.kind} of ${money(l.amount_cents)}`, onclick: () => reverse(l) }, 'Reverse')) : l.reversed ? h('div', { class: 'muted' }, 'Reversed') : null),
+        h('td', { 'data-label': 'Amount', class: 'amount' }, money(l.amount_cents)))))) : h('p', { class: 'muted' }, 'No activity yet.'));
+  // A mistake is undone by a new entry that cancels it out. Nothing is ever deleted.
+  function reverse(l) {
+    mini(`Reverse this entry: ${money(l.amount_cents)}`, [
+      h('p', { class: 'hint' }, 'A new entry for the opposite amount is added. The original stays in the history. This needs a safety check.'),
+      field({ id: 'rv', label: 'Why', tag: 'textarea', required: true })], 'Reverse it', async (f) => {
+      const reason = f.querySelector('#rv').value.trim();
+      if (!reason) throw new Error('Please say why this entry is being reversed.');
+      await api('POST', `/api/staff/ledger/${l.id}/reverse`, { reason });
+      refresh();
+    });
+  }
   return out;
 });
 

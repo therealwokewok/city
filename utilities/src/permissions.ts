@@ -24,7 +24,7 @@ export const ROLE_PERMS: Record<Role, string[]> = {
 
 /** Actions that need a recent re-confirmation by email code, even inside a live session. */
 export const STEP_UP_ACTIONS = ['roles.grant', 'settings.update', 'run.approve', 'approval.decide', 'linkcode.regen',
-  'rates.create', 'services.toggle', 'user.deactivate', 'arrangement.decide'] as const;
+  'rates.create', 'services.toggle', 'user.deactivate', 'arrangement.decide', 'ledger.reverse'] as const;
 
 export function permsFor(roles: string[]): string[] {
   const s = new Set<string>();
@@ -35,7 +35,7 @@ export function permsFor(roles: string[]): string[] {
 /** Which roles a holder of a given role may hand out. site_admin cannot grant money roles. */
 export const GRANTABLE_BY: Record<Role, Role[]> = {
   site_admin: ['city_admin'],
-  city_admin: ['billing_clerk', 'cashier', 'meter_reader', 'approver', 'auditor', 'customer_service'],
+  city_admin: ['city_admin', 'billing_clerk', 'cashier', 'meter_reader', 'approver', 'auditor', 'customer_service'],
   billing_clerk: [], cashier: [], meter_reader: [], approver: [], auditor: [], customer_service: [], resident: [],
 };
 

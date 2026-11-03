@@ -84,7 +84,7 @@ afterAll(async () => { await app.close(); await closePool(); await owner.end(); 
 
 async function buildAppForTest() {
   const { buildApp } = await import('../src/server.js');
-  return buildApp({ email: mail, payments: pay, signInLimitScale: 50 });
+  return buildApp({ quiet: true, email: mail, payments: pay, signInLimitScale: 50 });
 }
 
 // ============================================================================================
@@ -355,7 +355,9 @@ describe('5. role grants', () => {
   it('nobody grants themselves a role, or grants above their station', async () => {
     expect((await call('admin', 'POST', `/api/staff/users/${S.users.admin.id}/roles`, { role: 'approver', action: 'grant' })).status).toBe(403);
     expect((await call('siteadmin', 'POST', `/api/staff/users/${S.users.siteadmin.id}/roles`, { role: 'city_admin', action: 'grant' })).status).toBe(403);
-    expect((await call('admin', 'POST', `/api/staff/users/${S.users.cs.id}/roles`, { role: 'city_admin', action: 'grant' })).status).toBe(403);
+    // a city administrator may add another city administrator (so the city is never down to one), then take it away again
+    expect((await call('admin', 'POST', `/api/staff/users/${S.users.cs.id}/roles`, { role: 'city_admin', action: 'grant' })).status).toBe(200);
+    expect((await call('admin', 'POST', `/api/staff/users/${S.users.cs.id}/roles`, { role: 'city_admin', action: 'revoke' })).status).toBe(200);
     expect((await call('admin', 'POST', `/api/staff/users/${S.users.cs.id}/roles`, { role: 'site_admin', action: 'grant' })).status).toBe(403);
     expect((await call('admin', 'POST', `/api/staff/users/${S.users.cs.id}/roles`, { role: 'resident', action: 'grant' })).status).toBe(403);
     expect((await call('siteadmin', 'POST', `/api/staff/users/${S.users.cs.id}/roles`, { role: 'approver', action: 'grant' })).status).toBe(403);

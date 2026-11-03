@@ -27,13 +27,18 @@ export function validateRate(c: any): RateConfig {
   if (!c || typeof c !== 'object') bad('missing');
   if (typeof c.code !== 'string' || !c.code) bad('code');
   if (typeof c.description !== 'string') bad('description');
+  if (c.taxable !== undefined && typeof c.taxable !== 'boolean') bad('taxable');
   if (c.type === 'flat') {
     if (!Number.isInteger(c.amount_cents)) bad('amount_cents');
     return c as FlatRate;
   }
   if (c.type === 'metered') {
     if (!Number.isInteger(c.base_cents) || c.base_cents < 0) bad('base_cents');
-    if (!(c.included_units >= 0)) bad('included_units');
+    if (!(typeof c.included_units === 'number' && c.included_units >= 0)) bad('included_units');
+    if (c.minimum_cents !== undefined && !(Number.isInteger(c.minimum_cents) && c.minimum_cents >= 0)) bad('minimum_cents');
+    if (c.fuel_adjust_mills_per_unit !== undefined && !(Number.isInteger(c.fuel_adjust_mills_per_unit) && c.fuel_adjust_mills_per_unit >= 0)) bad('fuel_adjust_mills_per_unit');
+    if (c.per_meter !== undefined && typeof c.per_meter !== 'boolean') bad('per_meter');
+    if (c.basis !== undefined && (typeof c.basis !== 'string' || c.basis.length > 10)) bad('basis');
     if (!Array.isArray(c.tiers)) bad('tiers');
     if (c.usage_factor !== undefined && !(c.usage_factor > 0 && c.usage_factor <= 1000)) bad('usage_factor');
     if (c.unit !== undefined && (typeof c.unit !== 'string' || c.unit.length > 20)) bad('unit');
@@ -42,7 +47,7 @@ export function validateRate(c: any): RateConfig {
     c.tiers.forEach((t: Tier, i: number) => {
       if (!Number.isInteger(t.mills_per_unit) || t.mills_per_unit < 0) bad('tier price');
       if (t.up_to === null) { if (i !== c.tiers.length - 1) bad('open tier must be last'); }
-      else { if (!(t.up_to > last)) bad('tiers must increase'); last = t.up_to; }
+      else { if (!(typeof t.up_to === 'number' && t.up_to > last)) bad('tiers must increase'); last = t.up_to; }
     });
     return c as MeteredRate;
   }

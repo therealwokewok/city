@@ -17,6 +17,8 @@ export type Purpose = 'login' | 'stepup';
 /** Emails an 8 digit code. Silently does nothing when asked too often, so the answer never changes. */
 export async function requestCode(c: pg.PoolClient, email: string, purpose: Purpose, mail: EmailAdapter, cityName: string) {
   const e = email.trim().toLowerCase();
+  // Old codes are useless after their 10 minutes; clear the ones from yesterday and before so the table stays small.
+  await c.query(`delete from login_codes where created_at < now() - interval '1 day'`);
   const recent = await c.query(
     `select count(*)::int as n from login_codes where email = $1 and created_at > now() - interval '10 minutes'`, [e]);
   if (recent.rows[0].n >= MAX_CODES_PER_10_MIN) return;

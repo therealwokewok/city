@@ -30,6 +30,7 @@ export class HttpEmail implements EmailAdapter {
       method: 'POST',
       headers: { authorization: `Bearer ${this.token}`, 'content-type': 'application/json' },
       body: JSON.stringify({ from: this.from, to, subject, text }),
+      signal: AbortSignal.timeout(10_000), // a slow provider must not hang every sign-in
     });
     if (!res.ok) throw new Error('email provider returned ' + res.status);
   }

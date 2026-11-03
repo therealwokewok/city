@@ -14,7 +14,7 @@ const fake: SsoProvider = {
   authorizeUrl: async (p) => `https://idp.example/auth?state=${p.state}&nonce=${p.nonce}`,
   exchange: async (p) => { if (p.code !== 'good') throw new Error('bad code'); return { email: nextEmail }; },
 };
-beforeAll(async () => { S = await seedCity('sso'); nextEmail = S.users.clerk.email; app = await buildApp({ email: new MemoryEmail(), payments: new FakePaymentsAdapter(), sso: fake }); });
+beforeAll(async () => { S = await seedCity('sso'); nextEmail = S.users.clerk.email; app = await buildApp({ quiet: true, email: new MemoryEmail(), payments: new FakePaymentsAdapter(), sso: fake }); });
 afterAll(async () => { await app.close(); await closePool(); await owner.end(); });
 
 const get = (url: string, cookie?: string) => app.inject({ method: 'GET', url, headers: { host: S.host, ...(cookie ? { cookie } : {}) } });
@@ -46,7 +46,7 @@ describe('single sign-on', () => {
     expect(made.rowCount).toBe(0); // single sign-on never creates accounts
   });
   it('turned off when not configured', async () => {
-    const off = await buildApp({ email: new MemoryEmail(), payments: new FakePaymentsAdapter() });
+    const off = await buildApp({ quiet: true, email: new MemoryEmail(), payments: new FakePaymentsAdapter() });
     expect((await off.inject({ method: 'GET', url: '/api/auth/sso/start', headers: { host: S.host } })).statusCode).toBe(404);
     expect((await off.inject({ method: 'GET', url: '/api/auth/sso/info', headers: { host: S.host } })).json()).toEqual({ enabled: false, name: null });
     await off.close();

@@ -147,7 +147,9 @@ function drawLine(doc: PDFKit.PDFDocument, k: number, f: Field) {
 function put(doc: PDFKit.PDFDocument, k: number, f: Field, text: string, pageW: number) {
   doc.font(f.bold ? 'Helvetica-Bold' : 'Helvetica').fontSize(f.size ?? 10).fillColor('#000');
   const width = (f.width ?? Math.max(1, pageW - f.x)) * k;
-  doc.text(text, f.x * k, f.y * k, { width, align: f.align ?? 'left', lineBreak: true });
+  // Text may wrap, but never past the bottom of the page: a long address must not push the next bill onto a new sheet.
+  const height = Math.max(doc.currentLineHeight(), doc.page.height - f.y * k - 2);
+  doc.text(text, f.x * k, f.y * k, { width, height, align: f.align ?? 'left', lineBreak: true, ellipsis: true });
 }
 
 export function renderBills(profile: PrintProfile, bills: BillData[]): Promise<Buffer> {

@@ -81,7 +81,7 @@ await db.query(`insert into print_profiles (city_id, kind, name, config) values 
 
 const mail = new MemoryEmail();
 const pay = new FakePaymentsAdapter();
-const app = await buildApp({ email: mail, payments: pay, signInLimitScale: 50 });
+const app = await buildApp({ quiet: true, email: mail, payments: pay, signInLimitScale: 50 });
 // Test-only helpers (never in the real server)
 app.get('/__test/code', async (req) => ({ code: mail.lastCode(String((req.query as any).email)) }));
 app.post('/__test/reset-codes', async (req) => { await db.query('delete from login_codes where email = $1', [String((req.body as any).email).toLowerCase()]); return { ok: true }; });

@@ -65,3 +65,16 @@ export async function elevate(c: pg.PoolClient, perm: string) {
 export async function audit(c: pg.PoolClient, actor: string | null, action: string, detail: object = {}) {
   await c.query('select audit_append($1, $2, $3::jsonb)', [actor, action, JSON.stringify(detail)]);
 }
+
+/**
+ * Production must run as the limited utilities_app role. The owner role bypasses row security, so a mixed-up
+ * DATABASE_URL would silently let every customer see every other customer.
+ */
+export async function assertLimitedDbRole(): Promise<string> {
+  const r = await getPool().query(`select current_user as u, (select rolsuper or rolbypassrls from pg_roles where rolname = current_user) as wide,
+    (select count(*)::int from pg_class c join pg_namespace n on n.oid = c.relnamespace where n.nspname = 'public' and c.relkind = 'r' and c.relowner = (select oid from pg_roles where rolname = current_user)) as owned`);
+  const { u, wide, owned } = r.rows[0];
+  if (wide) return `DATABASE_URL connects as "${u}", which can bypass row security. Use the limited utilities_app role.`;
+  if (Number(owned) > 0) return `DATABASE_URL connects as "${u}", which owns the tables and so bypasses row security. Use the limited utilities_app role.`;
+  return 'ok';
+}

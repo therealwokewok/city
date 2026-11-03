@@ -2,7 +2,8 @@
 # Not for real bills. See deploy/README.md.
 services:
   db:
-    image: postgres:16
+    logging: { driver: json-file, options: { max-size: "10m", max-file: "3" } }
+    image: postgres:16.11
     restart: unless-stopped
     environment:
       POSTGRES_USER: utilities_owner
@@ -11,6 +12,7 @@ services:
     volumes: ["dbdata:/var/lib/postgresql/data"]
     healthcheck: { test: ["CMD-SHELL", "pg_isready -U utilities_owner"], interval: 3s, retries: 20 }
   migrate:
+    logging: { driver: json-file, options: { max-size: "10m", max-file: "3" } }
     build: { context: .., dockerfile: Dockerfile }
     command: ["node", "dist/src/migrate.js"]
     environment:
@@ -18,6 +20,7 @@ services:
       APP_DB_PASSWORD: ${APP_PASSWORD}
     depends_on: { db: { condition: service_healthy } }
   app:
+    logging: { driver: json-file, options: { max-size: "10m", max-file: "3" } }
     build: { context: .., dockerfile: Dockerfile }
     restart: unless-stopped
     environment:
@@ -35,7 +38,8 @@ services:
       STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-}
     depends_on: { migrate: { condition: service_completed_successfully } }
   caddy:
-    image: caddy:2
+    logging: { driver: json-file, options: { max-size: "10m", max-file: "3" } }
+    image: caddy:2.10
     restart: unless-stopped
     ports: ["80:80", "443:443"]
     environment: { DEMO_HOST: "${DEMO_HOST}" }

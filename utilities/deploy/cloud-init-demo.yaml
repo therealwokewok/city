@@ -38,7 +38,8 @@ write_files:
       setkey DEMO_HOST "\"$HOSTS\""
       setkey DEMO_ADMIN_EMAIL "$ADMIN_EMAIL"
       setkey EMAIL_API_URL "$EMAIL_API_URL"
-      setkey EMAIL_API_TOKEN "not-a-secret-the-relay-checks-the-caller-ip"
+      # Made once. Put the same value in the Worker as a secret named MAIL_TOKEN (see deploy/README.md).
+      grep -q '^EMAIL_API_TOKEN=' .env || setkey EMAIL_API_TOKEN "$(head -c 24 /dev/urandom | base64 | tr -dc A-Za-z0-9)"
       setkey EMAIL_FROM "$EMAIL_FROM"
       docker compose -f docker-compose.demo.yml up -d --build
       . ./.env
@@ -51,5 +52,9 @@ write_files:
       for h in $(echo "$HOSTS" | tr ',' ' '); do
         psql "update cities set hosts = array_append(hosts, '$h') where '$MAIN_HOST' = any(hosts) and not '$h' = any(hosts)"
       done
-      docker compose -f docker-compose.demo.yml exec -T -e OWNER_DATABASE_URL="$OWN" app node dist/scripts/test-users.js "$MAIN_HOST" "$TEST_DOMAIN" > /var/log/demo-test-users.log 2>&1
+      # Test users are made once. Re-running would put back roles an administrator took away on purpose.
+      if [ ! -f /opt/city/.demo-test-users-done ]; then
+        docker compose -f docker-compose.demo.yml exec -T -e OWNER_DATABASE_URL="$OWN" app node dist/scripts/test-users.js "$MAIN_HOST" "$TEST_DOMAIN" > /var/log/demo-test-users.log 2>&1 && touch /opt/city/.demo-test-users-done
+      fi
+      chmod 600 /var/log/demo-seed.log /var/log/demo-test-users.log 2>/dev/null || true
       echo "demo ready $(date -u)"

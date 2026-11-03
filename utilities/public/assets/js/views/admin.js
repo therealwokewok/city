@@ -545,7 +545,7 @@ export const appearance = safe(async () => {
   const file = h('input', { id: 'logo', type: 'file', accept: 'image/png,image/jpeg' });
   const logoForm = h('form', { novalidate: true, class: 'card' }, h('h2', {}, 'City logo'),
     h('p', { class: 'hint' }, 'A PNG or JPEG picture under 300 KB. It shows in the top bar of every page.'),
-    state.city?.has_logo ? h('p', {}, h('img', { src: '/api/city/logo', alt: 'The current city logo', style: 'max-height:4rem;background:#fff;padding:.25rem' })) : h('p', { class: 'muted' }, 'No logo yet.'),
+    state.city?.has_logo ? h('p', {}, h('img', { src: '/api/city/logo', alt: 'The current city logo', class: 'logo-preview' })) : h('p', { class: 'muted' }, 'No logo yet.'),
     h('div', { class: 'field' }, h('label', { for: 'logo' }, 'Choose a picture'), file),
     h('div', { class: 'actions' }, h('button', { class: 'btn', type: 'submit' }, 'Save the logo'), h('button', { class: 'btn secondary', type: 'button', id: 'rm-logo' }, 'Remove the logo')));
   logoForm.addEventListener('submit', async (e) => {

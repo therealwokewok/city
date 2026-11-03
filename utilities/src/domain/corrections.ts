@@ -32,8 +32,10 @@ export async function previewCorrection(c: pg.PoolClient, readingId: string, new
      order by read_at, created_at limit 1`, [r.meter_id, r.id, r.read_at, r.created_at])).rows[0];
   const delta = (newValue - oldValue) * Number(r.multiplier);
   const changes: Change[] = [];
-  if (hasPrev) changes.push({ reading_id: r.id, old_usage: Number(r.usage), new_usage: Number(r.usage) + delta, billed_run_id: r.billed_run_id });
-  if (next) changes.push({ reading_id: next.id, old_usage: Number(next.usage), new_usage: Number(next.usage) - delta, billed_run_id: next.billed_run_id });
+  // A run that is only calculated has not charged anyone yet: it is simply recalculated after the fix, so no money.
+  const postedRun = async (runId: string | null) => runId && (await c.query(`select 1 from bill_runs where id = $1 and status = 'posted'`, [runId])).rows[0] ? runId : null;
+  if (hasPrev) changes.push({ reading_id: r.id, old_usage: Number(r.usage), new_usage: Number(r.usage) + delta, billed_run_id: await postedRun(r.billed_run_id) });
+  if (next) changes.push({ reading_id: next.id, old_usage: Number(next.usage), new_usage: Number(next.usage) - delta, billed_run_id: await postedRun(next.billed_run_id) });
   if (changes.some((x) => x.new_usage < 0)) throw bad('That number would make the usage less than zero. Check the number, or the reading after it.');
 
   // Price each bill that used a changed reading, before and after.

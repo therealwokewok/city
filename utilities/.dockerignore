@@ -1,0 +1,12 @@
+.git
+node_modules
+dist
+test
+e2e
+e2e-shots
+test-results
+.env
+.env.*
+!.env.example
+*.log
+deploy/.env
