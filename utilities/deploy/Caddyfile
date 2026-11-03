@@ -1,3 +1,8 @@
+{
+	# Ask Let's Encrypt's production service directly.
+	acme_ca https://acme-v02.api.letsencrypt.org/directory
+}
+
 {$DEMO_HOST} {
 	encode gzip
 	reverse_proxy app:8080
