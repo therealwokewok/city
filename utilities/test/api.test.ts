@@ -448,3 +448,19 @@ describe('mailing addresses and dates on paper', () => {
     expect(longPeriod('2026-10-04', '2026-11-03')).toBe('October 4, 2026 to November 3, 2026');
   });
 });
+
+describe('boxes and lines on bills', () => {
+  it('checks shapes and still prints a starter-style bill', async () => {
+    const { validateProfile, renderBills } = await import('../src/printing.js');
+    const page = { units: 'in', page: { width: 8.5, height: 11 } };
+    expect(() => validateProfile('bill', { ...page, fields: [{ source: 'box', x: 1, y: 1, width: 2 }] })).toThrow(/height/);
+    expect(() => validateProfile('bill', { ...page, fields: [{ source: 'line', x: 1, y: 1 }] })).toThrow(/width/);
+    expect(() => validateProfile('bill', { ...page, fields: [{ source: 'line', x: 7, y: 1, width: 3 }] })).toThrow(/right edge/);
+    const p = validateProfile('bill', { ...page, fields: [
+      { source: 'box', x: 4.85, y: 2.15, width: 3.15, height: 1.05, shade: true, text: 'Amount due' },
+      { source: 'line', x: 0.5, y: 8.55, width: 7.5, shade: true, text: 'Cut here' },
+      { source: 'bill.lines', x: 0.5, y: 3.95, width: 7.5, height: 3.9 }, { source: 'city.phone', x: 1, y: 1, label: 'Call ' }] });
+    const buf = await renderBills(p, [{ city: { name: 'C', return_address: '', remit_to: '', office_hours: '', phone: '555' }, account: { name: 'A', number: '1', service_address: 'S', mailing_address: null }, period: 'Oct', due: 'Nov', total_cents: 100, lines: [{ code: 'W', description: 'Water', amount_cents: 100, units: 10, unit: 'gallons' }] }]);
+    expect(buf.subarray(0, 5).toString()).toBe('%PDF-');
+  });
+});

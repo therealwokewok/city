@@ -1038,7 +1038,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
       const { profile } = await loadProfile(c, pid, 'bill');
       const { s, city, run, rows } = await runPrintData(c, id);
       const data: BillData[] = rows.filter((r) => include_paperless === '1' || !r.paperless).map((r) => ({
-        city: { name: city.name, return_address: s.return_address, remit_to: s.remit_to, office_hours: s.office_hours },
+        city: { name: city.name, return_address: s.return_address, remit_to: s.remit_to, office_hours: s.office_hours, phone: s.phone },
         account: { name: r.name, number: r.account_number, service_address: r.service_address, mailing_address: r.mailing_address },
         period: longPeriod(run.period_start, run.period_end), due: longDate(run.due_date), total_cents: r.total_cents, lines: r.lines,
       }));

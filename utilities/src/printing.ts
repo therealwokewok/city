@@ -9,7 +9,8 @@ export type Units = 'in' | 'mm' | 'pt';
 export interface Field {
   source: string; x: number; y: number; width?: number; size?: number; align?: 'left' | 'center' | 'right';
   bold?: boolean; text?: string; label?: string; row_height?: number;
-  height?: number; // for bill.lines: how much room the list may use, so it never prints over what is below it
+  height?: number; // bill.lines: room the list may use; box: how tall it is
+  shade?: boolean;  // box: light gray inside. line: dashed, for a "cut here" line
 }
 export interface PrintProfile {
   units: Units;
@@ -18,9 +19,11 @@ export interface PrintProfile {
   fields: Field[];
 }
 
-export const BILL_SOURCES = ['static', 'city.name', 'city.return_address', 'city.remit_to', 'city.office_hours', 'account.name',
-  'account.number', 'account.service_address', 'account.mailing_address', 'bill.period', 'bill.due', 'bill.total', 'bill.lines'];
-export const ENVELOPE_SOURCES = ['static', 'city.name', 'return_address', 'recipient'];
+export const BILL_SOURCES = ['static', 'city.name', 'city.return_address', 'city.remit_to', 'city.office_hours', 'city.phone', 'account.name',
+  'account.number', 'account.service_address', 'account.mailing_address', 'bill.period', 'bill.due', 'bill.total', 'bill.lines', 'box', 'line'];
+export const ENVELOPE_SOURCES = ['static', 'city.name', 'return_address', 'recipient', 'box', 'line'];
+/** Shapes, not words: a frame or a divider. */
+const SHAPES = ['box', 'line'];
 
 const PT: Record<Units, number> = { in: 72, mm: 72 / 25.4, pt: 1 };
 
@@ -70,6 +73,10 @@ export function validateProfile(kind: 'bill' | 'envelope', cfg: any): PrintProfi
     if (f.width !== undefined && !(f.width > 0 && f.width <= w)) bad('field width is off the page');
     if (f.height !== undefined && !(f.height > 0 && f.y + f.height <= h + 1e-9)) bad('field height runs off the page');
     if (f.source === 'static' && (typeof f.text !== 'string' || f.text.length > 300)) bad('static text must be under 300 characters');
+    if (SHAPES.includes(f.source) && !(f.width && f.width > 0)) bad(`a ${f.source} needs a width`);
+    if (f.source === 'box' && !(f.height && f.height > 0)) bad('a box needs a height');
+    if (SHAPES.includes(f.source) && f.text !== undefined && (typeof f.text !== 'string' || f.text.length > 120)) bad('a heading on a box or line must be under 120 characters');
+    if (f.x + (f.width ?? 0) > w + 1e-9) bad(`${f.source} runs off the right edge of the page`);
     if (f.align !== undefined && !['left', 'center', 'right'].includes(f.align)) bad('align');
     if (f.label !== undefined && (typeof f.label !== 'string' || f.label.length > 40)) bad('words before an item must be under 40 characters');
   }
@@ -77,7 +84,7 @@ export function validateProfile(kind: 'bill' | 'envelope', cfg: any): PrintProfi
 }
 
 export interface BillData {
-  city: { name: string; return_address: string; remit_to: string; office_hours: string };
+  city: { name: string; return_address: string; remit_to: string; office_hours: string; phone?: string };
   account: { name: string; number: string; service_address: string; mailing_address: string | null };
   period: string; due: string; total_cents: number;
   lines: { code: string; description: string; amount_cents: number; meter?: string; units?: number; unit?: string }[];
@@ -111,6 +118,32 @@ function cornerMarks(doc: PDFKit.PDFDocument, wPt: number, hPt: number) {
   }
 }
 
+const INK = '#1a1a1a', RULE = '#8a8a8a', SHADE = '#ececec';
+
+/** A frame, light gray inside when shaded, with an optional small heading in its top left corner. */
+function drawBox(doc: PDFKit.PDFDocument, k: number, f: Field) {
+  const x = f.x * k, y = f.y * k, w = (f.width ?? 1) * k, h = (f.height ?? 1) * k;
+  doc.save().lineWidth(1).strokeColor(INK);
+  if (f.shade) doc.roundedRect(x, y, w, h, 4).fillAndStroke(SHADE, INK); else doc.roundedRect(x, y, w, h, 4).stroke();
+  doc.restore();
+  if (f.text) doc.font('Helvetica-Bold').fontSize(f.size ?? 8).fillColor(INK).text(f.text.toUpperCase(), x + 7, y + 6, { width: w - 14, lineBreak: false, characterSpacing: 0.6 });
+}
+/** A divider across the page. Dashed with words in the middle, it makes a clear "cut here" line. */
+function drawLine(doc: PDFKit.PDFDocument, k: number, f: Field) {
+  const x = f.x * k, y = f.y * k, w = (f.width ?? 1) * k;
+  doc.save().lineWidth(f.shade ? 1 : 1.5).strokeColor(f.shade ? RULE : INK);
+  if (f.shade) doc.dash(5, { space: 4 });
+  doc.moveTo(x, y).lineTo(x + w, y).stroke();
+  doc.undash().restore();
+  if (f.text) {
+    const size = f.size ?? 8;
+    doc.font('Helvetica-Oblique').fontSize(size);
+    const tw = Math.min(doc.widthOfString(f.text) + 12, w);
+    doc.rect(x + (w - tw) / 2, y - size * 0.7, tw, size * 1.4).fill('#ffffff');
+    doc.fillColor(INK).text(f.text, x + (w - tw) / 2 + 6, y - size * 0.5, { width: tw - 12, align: 'center', lineBreak: false });
+  }
+}
+
 function put(doc: PDFKit.PDFDocument, k: number, f: Field, text: string, pageW: number) {
   doc.font(f.bold ? 'Helvetica-Bold' : 'Helvetica').fontSize(f.size ?? 10).fillColor('#000');
   const width = (f.width ?? Math.max(1, pageW - f.x)) * k;
@@ -122,8 +155,11 @@ export function renderBills(profile: PrintProfile, bills: BillData[]): Promise<B
     for (const b of bills) {
       const k = newPage(doc, profile);
       if (profile.marks) cornerMarks(doc, profile.page.width * k, profile.page.height * k);
+      // Shapes first, so words always sit on top of a shaded box.
+      for (const f of profile.fields) { if (f.source === 'box') drawBox(doc, k, f); else if (f.source === 'line') drawLine(doc, k, f); }
       for (const f of profile.fields) {
         switch (f.source) {
+          case 'city.phone': put(doc, k, f, (f.label ?? '') + (b.city.phone ?? ''), profile.page.width); break;
           case 'static': put(doc, k, f, f.text ?? '', profile.page.width); break;
           case 'city.name': put(doc, k, f, (f.label ?? '') + (b.city.name), profile.page.width); break;
           case 'city.return_address': put(doc, k, f, (f.label ?? '') + (b.city.return_address), profile.page.width); break;
@@ -137,25 +173,43 @@ export function renderBills(profile: PrintProfile, bills: BillData[]): Promise<B
           case 'bill.due': put(doc, k, f, (f.label ?? '') + b.due, profile.page.width); break;
           case 'bill.total': put(doc, k, f, (f.label ?? '') + fmt(b.total_cents), profile.page.width); break;
           case 'bill.lines': {
+            // A real table: a shaded heading row, light rules between charges, and a bold total at the bottom.
             const size = f.size ?? 9;
-            const rowH = f.row_height ?? (size * 1.5) / PT[profile.units]; // in profile units
+            const rowH = f.row_height ?? (size * 1.9) / PT[profile.units]; // in profile units
             const width = f.width ?? profile.page.width - f.x;
-            let y = f.y;
+            const X = f.x * k, W = width * k, R = rowH * k;
+            const col = { svc: X + 6, det: X + W * 0.30, amt: X + W * 0.74, amtW: W * 0.26 - 6 };
             const maxY = f.height ? f.y + f.height : profile.page.height;
-            const fit = linesThatFit(b.lines.length, Math.floor((maxY - f.y + 1e-9) / rowH));
+            const rows = Math.floor((maxY - f.y + 1e-9) / rowH) - 2; // minus the heading row and the total row
+            const fit = linesThatFit(b.lines.length, rows);
+            let y = f.y * k;
+            const textY = (top: number) => top + (R - size) / 2 + 1;
+            doc.save().rect(X, y, W, R).fill(SHADE).restore();
+            doc.font('Helvetica-Bold').fontSize(size).fillColor(INK);
+            doc.text('Service', col.svc, textY(y), { lineBreak: false });
+            doc.text('What it is for', col.det, textY(y), { lineBreak: false });
+            doc.text('Amount', col.amt, textY(y), { width: col.amtW, align: 'right', lineBreak: false });
+            doc.save().lineWidth(1).strokeColor(INK).moveTo(X, y + R).lineTo(X + W, y + R).stroke().restore();
+            y += R;
             for (const l of b.lines.slice(0, fit.show)) {
-              doc.font('Helvetica').fontSize(size).fillColor('#000');
-              doc.text(l.code, f.x * k, y * k, { width: width * 0.15 * k, lineBreak: false });
-              const used = l.units != null ? `, ${Number(l.units).toLocaleString('en-US')}${l.unit ? ' ' + l.unit : ''} used` : '';
-              doc.text(l.description + (l.meter ? ` (${l.meter})` : '') + used, (f.x + width * 0.17) * k, y * k, { width: width * 0.55 * k, lineBreak: false });
-              doc.text(fmt(l.amount_cents), (f.x + width * 0.72) * k, y * k, { width: width * 0.28 * k, align: 'right', lineBreak: false });
-              y += rowH;
+              const used = l.units != null ? `${Number(l.units).toLocaleString('en-US')}${l.unit ? ' ' + l.unit : ''} used` : '';
+              const what = [l.meter ? `Meter ${l.meter}` : '', used].filter(Boolean).join(', ');
+              doc.font('Helvetica').fontSize(size).fillColor(INK);
+              doc.text(l.description, col.svc, textY(y), { width: col.det - col.svc - 6, lineBreak: false, ellipsis: true });
+              doc.fontSize(size - 0.5).fillColor('#333').text(what, col.det, textY(y), { width: col.amt - col.det - 6, lineBreak: false, ellipsis: true });
+              doc.fontSize(size).fillColor(INK).text(fmt(l.amount_cents), col.amt, textY(y), { width: col.amtW, align: 'right', lineBreak: false });
+              doc.save().lineWidth(0.5).strokeColor('#c8c8c8').moveTo(X, y + R).lineTo(X + W, y + R).stroke().restore();
+              y += R;
             }
             // Out of room: say so on the last row, so nobody thinks a charge is missing from the total.
             if (fit.more) {
-              doc.font('Helvetica-Oblique').fontSize(size).fillColor('#000')
-                .text(moreText(fit.more), f.x * k, y * k, { width: width * k, lineBreak: false });
+              doc.font('Helvetica-Oblique').fontSize(size).fillColor(INK).text(moreText(fit.more), col.svc, textY(y), { width: W - 12, lineBreak: false });
+              y += R;
             }
+            doc.save().lineWidth(1.5).strokeColor(INK).moveTo(X, y).lineTo(X + W, y).stroke().restore();
+            doc.font('Helvetica-Bold').fontSize(size + 1).fillColor(INK);
+            doc.text('Total for this bill', col.svc, textY(y), { lineBreak: false });
+            doc.text(fmt(b.total_cents), col.amt, textY(y), { width: col.amtW, align: 'right', lineBreak: false });
             break;
           }
         }
@@ -171,6 +225,7 @@ export function renderEnvelopes(profile: PrintProfile, items: EnvelopeData[]): P
     for (const e of items) {
       const k = newPage(doc, profile);
       if (profile.marks) cornerMarks(doc, profile.page.width * k, profile.page.height * k);
+      for (const f of profile.fields) { if (f.source === 'box') drawBox(doc, k, f); else if (f.source === 'line') drawLine(doc, k, f); }
       for (const f of profile.fields) {
         if (f.source === 'static') put(doc, k, f, f.text ?? '', profile.page.width);
         else if (f.source === 'city.name') put(doc, k, f, e.city_name, profile.page.width);
@@ -197,10 +252,11 @@ export function renderTestPage(profile: PrintProfile, name: string): Promise<Buf
       doc.moveTo(0, y * k).lineTo(6, y * k).stroke();
       doc.text(String(+y.toFixed(2)), 8, y * k - 3, { lineBreak: false });
     }
+    for (const f of profile.fields) { if (f.source === 'box') drawBox(doc, k, f); else if (f.source === 'line') drawLine(doc, k, f); }
     doc.dash(3, { space: 3 }).strokeColor('#888');
-    for (const f of profile.fields) {
+    for (const f of profile.fields.filter((x) => !SHAPES.includes(x.source))) {
       const w = (f.width ?? Math.min(W - f.x, W / 3)) * k;
-      const h = (f.source === 'bill.lines' ? Math.min(H - f.y, H / 3) : (f.size ?? 10) * 3 / k) * k;
+      const h = (f.source === 'bill.lines' ? (f.height ?? Math.min(H - f.y, H / 3)) : (f.size ?? 10) * 3 / k) * k;
       doc.rect(f.x * k, f.y * k, w, Math.max(14, h)).stroke();
       doc.font('Helvetica').fontSize(Math.min(f.size ?? 10, 9)).fillColor('#000');
       doc.text(f.source === 'static' ? (f.text ?? '') : `[${f.source}]`, f.x * k + 2, f.y * k + 2, { width: w - 4, lineBreak: false });

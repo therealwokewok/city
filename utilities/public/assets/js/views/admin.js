@@ -319,29 +319,45 @@ const SRC_LABEL = {
   static: 'Fixed text you type', 'city.name': 'City name', 'city.return_address': 'City return address', 'city.remit_to': 'Where to mail payments',
   'city.office_hours': 'Office hours', 'account.name': 'Customer name', 'account.number': 'Account number', 'account.service_address': 'Service address',
   'account.mailing_address': 'Mailing address', 'bill.period': 'Billing period', 'bill.due': 'Due date', 'bill.total': 'Total due', 'bill.lines': 'List of charges',
-  return_address: 'Return address', recipient: 'Customer name and address',
+  return_address: 'Return address', recipient: 'Customer name and address', 'city.phone': 'City Hall phone number',
+  box: 'A box (frame) around part of the page', line: 'A line across the page (divider)',
 };
-const BILL_SOURCES = ['static', 'city.name', 'city.return_address', 'city.remit_to', 'city.office_hours', 'account.name', 'account.number', 'account.service_address', 'account.mailing_address', 'bill.period', 'bill.due', 'bill.total', 'bill.lines'];
-const ENV_SOURCES = ['static', 'city.name', 'return_address', 'recipient'];
+const BILL_SOURCES = ['static', 'city.name', 'city.return_address', 'city.remit_to', 'city.office_hours', 'city.phone', 'account.name', 'account.number', 'account.service_address', 'account.mailing_address', 'bill.period', 'bill.due', 'bill.total', 'bill.lines', 'box', 'line'];
+const ENV_SOURCES = ['static', 'city.name', 'return_address', 'recipient', 'box', 'line'];
+const SHAPES = ['box', 'line'];
 const UNIT_LABEL = { in: 'inches', mm: 'millimeters', pt: 'points (72 to an inch)' };
 
 // A new layout starts filled in, so nobody prints blank pages. Positions fit US letter paper folded in three for a
 // #10 window envelope, and a plain #10 envelope. Staff move things to match their own paper.
 const STARTER = {
+  // Letter paper folded in three for a #10 double-window envelope. The address area (about 1 to 4.5 inches across,
+  // 2 to 3 inches down) is left clear so it shows through the window.
   bill: { units: 'in', page: { width: 8.5, height: 11 }, fields: [
-    { source: 'city.name', x: 0.5, y: 0.5, size: 14 },
-    { source: 'city.return_address', x: 0.5, y: 0.8, size: 9, width: 3 },
-    { source: 'account.number', x: 5, y: 0.5, size: 10, label: 'Account: ' },
-    { source: 'bill.period', x: 5, y: 0.75, size: 10, label: 'Service: ' },
-    { source: 'bill.due', x: 5, y: 1, size: 10, label: 'Due: ' },
-    { source: 'account.name', x: 1, y: 2.1, size: 11 },
-    { source: 'account.mailing_address', x: 1, y: 2.3, size: 11, width: 3.5 },
-    { source: 'account.service_address', x: 5, y: 1.25, size: 9, width: 3 },
-    { source: 'bill.lines', x: 0.5, y: 3.6, size: 10, width: 7.5, height: 4 },
-    { source: 'bill.total', x: 5, y: 7.9, size: 13, label: 'Total due: ' },
-    { source: 'static', x: 0.5, y: 9, size: 9, text: 'Please return this part with your payment.' },
-    { source: 'city.remit_to', x: 0.5, y: 9.3, size: 10, width: 4 },
-    { source: 'city.office_hours', x: 0.5, y: 10.4, size: 8, width: 7.5 },
+    { source: 'city.name', x: 0.5, y: 0.45, size: 18, bold: true },
+    { source: 'city.return_address', x: 0.5, y: 0.8, size: 9, width: 3.5 },
+    { source: 'box', x: 4.6, y: 0.4, width: 3.4, height: 1.45, text: 'Your account' },
+    { source: 'account.number', x: 4.75, y: 0.7, size: 10, label: 'Account number: ', width: 3.1 },
+    { source: 'account.service_address', x: 4.75, y: 0.92, size: 10, label: 'Service at: ', width: 3.1 },
+    { source: 'bill.period', x: 4.75, y: 1.14, size: 9, label: 'Billing period: ', width: 3.1 },
+    { source: 'city.phone', x: 4.75, y: 1.5, size: 9, label: 'Questions? Call City Hall at ', width: 3.1 },
+    { source: 'account.name', x: 1, y: 2.15, size: 11 },
+    { source: 'account.mailing_address', x: 1, y: 2.35, size: 11, width: 3.4 },
+    { source: 'box', x: 4.85, y: 2.15, width: 3.15, height: 1.05, shade: true, text: 'Amount due' },
+    { source: 'bill.total', x: 5, y: 2.45, size: 22, bold: true, width: 2.85 },
+    { source: 'bill.due', x: 5, y: 2.88, size: 10, bold: true, label: 'Please pay by ', width: 2.85 },
+    { source: 'line', x: 0.5, y: 3.5, width: 7.5 },
+    { source: 'static', x: 0.5, y: 3.65, size: 12, bold: true, text: 'What you are being charged for' },
+    { source: 'bill.lines', x: 0.5, y: 3.95, size: 10, width: 7.5, height: 3.9 },
+    { source: 'city.office_hours', x: 0.5, y: 8.05, size: 9, width: 7.5, label: 'City Hall hours: ' },
+    { source: 'line', x: 0.5, y: 8.55, width: 7.5, shade: true, text: 'Cut here and send the bottom part with your payment' },
+    { source: 'box', x: 0.5, y: 8.8, width: 7.5, height: 1.85, text: 'Payment stub' },
+    { source: 'account.name', x: 0.7, y: 9.12, size: 10, bold: true, width: 3.6 },
+    { source: 'account.number', x: 0.7, y: 9.34, size: 10, label: 'Account number: ', width: 3.6 },
+    { source: 'city.remit_to', x: 0.7, y: 9.66, size: 9, label: 'Mail to: ', width: 3.6 },
+    { source: 'bill.total', x: 4.75, y: 9.12, size: 11, bold: true, label: 'Amount due: ', width: 3.1 },
+    { source: 'bill.due', x: 4.75, y: 9.36, size: 10, label: 'Please pay by ', width: 3.1 },
+    { source: 'static', x: 4.75, y: 9.86, size: 10, text: 'Amount paid: $ ______________', width: 3.1 },
+    { source: 'static', x: 0.7, y: 10.3, size: 9, text: 'Please write your account number on your check.', width: 7.1 },
   ] },
   envelope: { units: 'in', page: { width: 9.5, height: 4.125 }, fields: [
     { source: 'return_address', x: 0.35, y: 0.3, size: 9, width: 3 },
@@ -375,9 +391,10 @@ export const printing = safe(async () => {
       const i = rowsHost.children.length;
       const row = h('fieldset', { class: 'card pf' }, h('legend', {}, `Item ${i + 1}`),
         select(`s${i}`, 'What prints here', sources.map((s) => [s, SRC_LABEL[s] || s]), fd.source),
-        h('div', { class: 'st', hidden: fd.source === 'static' ? null : true }, field({ id: `t${i}`, label: 'Text to print', value: fd.text || '', maxlength: 300, autocomplete: 'off' })),
-        h('div', { class: 'lb', hidden: fd.source === 'static' ? true : null }, field({ id: `l${i}`, label: 'Words printed before it (optional)', hint: 'For example "Due: " or "Account: "', value: fd.label || '', maxlength: 40, autocomplete: 'off' })),
-        h('div', { class: 'hg', hidden: fd.source === 'bill.lines' ? null : true }, field({ id: `g${i}`, label: 'Room for the list of charges, top to bottom (optional)', hint: 'The list stops here so it never prints over what is below it', inputmode: 'decimal', value: fd.height ?? '', autocomplete: 'off' })),
+        h('div', { class: 'st', hidden: fd.source === 'static' || SHAPES.includes(fd.source) ? null : true }, field({ id: `t${i}`, label: 'Text to print (for a box or line: an optional heading)', value: fd.text || '', maxlength: 300, autocomplete: 'off' })),
+        h('div', { class: 'lb', hidden: fd.source === 'static' || SHAPES.includes(fd.source) ? true : null }, field({ id: `l${i}`, label: 'Words printed before it (optional)', hint: 'For example "Due: " or "Account: "', value: fd.label || '', maxlength: 40, autocomplete: 'off' })),
+        h('div', { class: 'hg', hidden: fd.source === 'bill.lines' || fd.source === 'box' ? null : true }, field({ id: `g${i}`, label: 'Height, top to bottom', hint: 'For the list of charges, it stops here so it never prints over what is below it', inputmode: 'decimal', value: fd.height ?? '', autocomplete: 'off' })),
+        h('label', { class: 'check sh', hidden: SHAPES.includes(fd.source) ? null : true }, h('input', { type: 'checkbox', id: `d${i}`, checked: fd.shade ? true : null }), 'Gray inside the box, or a dashed "cut here" line'),
         field({ id: `x${i}`, label: 'Distance from the left edge', inputmode: 'decimal', value: fd.x, autocomplete: 'off' }),
         field({ id: `y${i}`, label: 'Distance from the top edge', inputmode: 'decimal', value: fd.y, autocomplete: 'off' }),
         field({ id: `w${i}`, label: 'Width (optional)', hint: 'Text wraps at this width', inputmode: 'decimal', value: fd.width ?? '', autocomplete: 'off' }),
@@ -386,9 +403,11 @@ export const printing = safe(async () => {
         h('label', { class: 'check' }, h('input', { type: 'checkbox', id: `b${i}`, checked: fd.bold ? true : null }), 'Bold'),
         h('div', { class: 'actions' }, h('button', { class: 'btn secondary small', type: 'button', onclick: () => { row.remove(); renumber(); } }, 'Remove this item')));
       row.querySelector('select').addEventListener('change', (e) => {
-        row.querySelector('.st').hidden = e.target.value !== 'static';
-        row.querySelector('.lb').hidden = e.target.value === 'static';
-        row.querySelector('.hg').hidden = e.target.value !== 'bill.lines';
+        const v = e.target.value, shape = SHAPES.includes(v);
+        row.querySelector('.st').hidden = v !== 'static' && !shape;
+        row.querySelector('.lb').hidden = v === 'static' || shape;
+        row.querySelector('.hg').hidden = v !== 'bill.lines' && v !== 'box';
+        row.querySelector('.sh').hidden = !shape;
       });
       row._src = fd; rowsHost.append(row);
     };
@@ -424,12 +443,18 @@ export const printing = safe(async () => {
           const o = { ...(row._src?.row_height ? { row_height: row._src.row_height } : {}), source: v('s' + i), x: num(v('x' + i)), y: num(v('y' + i)), align: v('a' + i) };
           if (o.x === null || o.y === null) throw new Error(`Item ${i + 1}: please type how far it sits from the left and from the top.`);
           if (o.source === 'static') o.text = v('t' + i);
+          if (SHAPES.includes(o.source)) {
+            if (v('t' + i).trim()) o.text = v('t' + i).trim();
+            if (f.querySelector('#d' + i).checked) o.shade = true;
+            if (!v('w' + i).trim()) throw new Error(`Item ${i + 1}: a box or line needs a width.`);
+          }
           const wd = v('w' + i).trim() ? num(v('w' + i)) : undefined, sz = v('z' + i).trim() ? num(v('z' + i)) : undefined;
           if (wd !== undefined) { if (!(wd > 0)) throw new Error(`Item ${i + 1}: width must be a number.`); o.width = wd; }
           if (sz !== undefined) { if (!(sz >= 4 && sz <= 72)) throw new Error(`Item ${i + 1}: text size must be between 4 and 72.`); o.size = sz; }
           if (f.querySelector('#b' + i).checked) o.bold = true;
-          if (o.source !== 'static' && v('l' + i)) o.label = v('l' + i);
-          if (o.source === 'bill.lines' && v('g' + i).trim()) { const g = num(v('g' + i)); if (!(g > 0)) throw new Error(`Item ${i + 1}: the room for the list must be a number.`); o.height = g; }
+          if (o.source !== 'static' && !SHAPES.includes(o.source) && v('l' + i)) o.label = v('l' + i);
+          if (o.source === 'box' && !v('g' + i).trim()) throw new Error(`Item ${i + 1}: a box needs a height.`);
+          if ((o.source === 'bill.lines' || o.source === 'box') && v('g' + i).trim()) { const g = num(v('g' + i)); if (!(g > 0)) throw new Error(`Item ${i + 1}: the room for the list must be a number.`); o.height = g; }
           return o;
         });
         const config = { units: v('un'), page: { width: w, height: hh }, fields, ...(f.querySelector('#mk').checked ? { marks: true } : {}) };
