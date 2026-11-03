@@ -36,7 +36,7 @@ test('meter reader: works with no signal, then sends when back online', async ({
 
 test('meter reader: asks twice before saving a lower number', async ({ page }) => {
   await signIn(page, 'reader@example.test');
-  await page.getByRole('link', { name: /Electric, meter 1001/ }).click();
+  await page.getByRole('link', { name: /Electric meter MO-E-1001/ }).click();
   await page.getByLabel('What does the meter say now?').fill('100');
   await page.getByRole('button', { name: 'Save this reading' }).click();
   await expect(page.getByRole('dialog')).toContainText('Lower than last time');

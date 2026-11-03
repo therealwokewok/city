@@ -1,4 +1,4 @@
-import { h, field, money, plainDate, showError, busy, confirmDialog, announce, fill } from '../dom.js';
+import { h, field, money, plainDate, plainNote, showError, busy, confirmDialog, announce, fill } from '../dom.js';
 import { api, state } from '../api.js';
 
 const period = (b) => (b.period_start ? new Date(+b.period_end.slice(0, 4), +b.period_end.slice(5, 7) - 1, 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' }) : plainDate(b.posted_at));
@@ -93,7 +93,7 @@ export async function account(id) {
     h('h2', {}, 'Recent activity'),
     d.ledger.length ? h('ul', { class: 'list' }, d.ledger.map((l) => h('li', {},
       h('div', { class: 'row2' }, h('span', {}, kindName(l.kind)), h('span', { class: 'amount' + (l.amount_cents < 0 ? ' credit' : '') }, money(l.amount_cents))),
-      h('p', { class: 'muted' }, `${plainDate(l.created_at)}${l.memo ? ' - ' + l.memo : ''}`)))) : h('p', { class: 'muted' }, 'Nothing yet.'),
+      h('p', { class: 'muted' }, `${plainDate(l.created_at)}${l.memo ? ' - ' + plainNote(l.memo) : ''}`)))) : h('p', { class: 'muted' }, 'Nothing yet.'),
     h('section', { class: 'card' },
       h('h2', {}, 'Paper bills'),
       h('label', { class: 'check', for: 'paperless' }, toggle, 'Stop mailing me a paper bill'),
@@ -127,7 +127,7 @@ export async function bill(accountId, billId) {
     h('table', { class: 'bill' },
       h('caption', {}, 'What you were charged for'),
       h('thead', {}, h('tr', {}, h('th', { scope: 'col' }, 'Charge'), h('th', { scope: 'col', class: 'amt' }, 'Amount'))),
-      h('tbody', {}, b.lines.map((l) => h('tr', {}, h('td', {}, l.description, l.quantity > 1 ? h('span', { class: 'muted' }, ` (${l.quantity} at ${money(l.amount_cents / l.quantity)} each)`) : null, l.meter ? h('span', { class: 'muted' }, ` (meter ${l.meter.split('-').pop()})`) : null, l.units != null ? h('div', { class: 'muted' }, `${l.units}${l.unit ? ' ' + l.unit : ''} used`) : null), h('td', { class: 'amt' }, money(l.amount_cents))))),
+      h('tbody', {}, b.lines.map((l) => h('tr', {}, h('td', {}, l.description, l.quantity > 1 ? h('span', { class: 'muted' }, ` (${l.quantity} at ${money(l.amount_cents / l.quantity)} each)`) : null, l.meter ? h('span', { class: 'muted' }, ` (meter ${l.meter})`) : null, l.units != null ? h('div', { class: 'muted' }, `${l.units}${l.unit ? ' ' + l.unit : ''} used`) : null), h('td', { class: 'amt' }, money(l.amount_cents))))),
       h('tfoot', {}, h('tr', {}, h('th', { scope: 'row' }, 'Total'), h('td', { class: 'amt' }, money(b.total_cents))))),
     h('div', { class: 'actions' }, d.balance_cents > 0 ? h('a', { class: 'btn', href: `#/pay/${accountId}` }, `Pay my whole balance: ${money(d.balance_cents)}`) : null, askBtn),
     disputeForm);

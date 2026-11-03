@@ -1,4 +1,4 @@
-import { h, field, money, plainDate, showError, busy, confirmDialog, announce, todayIso, fill } from '../dom.js';
+import { h, field, money, plainDate, plainNote, showError, busy, confirmDialog, announce, todayIso, fill } from '../dom.js';
 import { api, has } from '../api.js';
 
 const dollarsToCents = (v) => {
@@ -58,8 +58,8 @@ export const readings = safe(async () => {
       const no = h('button', { class: 'btn small secondary', type: 'button' }, 'Reject');
       ok.addEventListener('click', () => act('accept', ok)); no.addEventListener('click', () => act('reject', no));
       return h('li', {}, err,
-        h('div', { class: 'row2' }, h('strong', {}, r.location || r.serial), r.status === 'flagged' ? h('span', { class: 'status warn' }, '! Check this') : null),
-        h('p', { class: 'muted' }, `Meter ${r.serial.split('-').pop()}, read ${plainDate(r.read_at)}`),
+        h('div', { class: 'row2' }, h('strong', {}, `${r.service_name || 'Meter'} at ${r.service_address || r.location || 'unknown address'}`), r.status === 'flagged' ? h('span', { class: 'status warn' }, '! Check this') : null),
+        h('p', { class: 'muted' }, `${r.account_number ? `Account ${r.account_number}, ${r.account_name}. ` : ''}Meter ${r.serial}, read ${plainDate(r.read_at)}`),
         h('p', {}, `Last: ${r.last_value ?? 'none'}  →  Now: `, h('strong', {}, String(r.value))),
         r.note ? h('p', { class: 'muted' }, `Note: ${r.note}`) : null,
         low ? h('div', { class: 'field' }, h('label', { for: 'u-' + r.id }, 'Real amount used (needed because it is lower than last time)'), usage) : null,
@@ -169,7 +169,9 @@ export const run = safe(async (id) => {
       actions, needsOther,
       h('h2', {}, `${bills.length} bills, ${money(total)}`),
       bills.length ? h('table', { class: 'tbl' }, h('thead', {}, h('tr', {}, h('th', {}, 'Account'), h('th', {}, 'Name'), h('th', {}, 'Total'))),
-        h('tbody', {}, bills.map((b) => h('tr', {}, h('td', { 'data-label': 'Account' }, b.account_number), h('td', { 'data-label': 'Name' }, b.name), h('td', { 'data-label': 'Total', class: 'amount' }, money(b.total_cents)))))) : h('p', { class: 'muted' }, 'No bills yet. Calculate to make them.'),
+        h('tbody', {}, bills.map((b) => h('tr', {}, h('td', { 'data-label': 'Account' }, b.account_number), h('td', { 'data-label': 'Name' }, b.name,
+          // The approver can open each bill and check its lines before approving.
+          h('details', { class: 'bill-lines' }, h('summary', {}, 'See the lines'), h('ul', {}, (b.lines || []).map((l) => h('li', {}, `${l.description}${l.meter ? ` (meter ${l.meter})` : ''}${l.units != null ? `, ${l.units}${l.unit ? ' ' + l.unit : ''} used` : ''}${l.quantity > 1 ? `, ${l.quantity} of them` : ''}: `, h('strong', {}, money(l.amount_cents))))))), h('td', { 'data-label': 'Total', class: 'amount' }, money(b.total_cents)))))) : h('p', { class: 'muted' }, 'No bills yet. Calculate to make them.'),
       printBox);
   };
   draw();
@@ -337,10 +339,10 @@ export const account = safe(async (id) => {
           h('button', { class: 'btn', type: 'button', onclick: () => setSvc(sel.value, true, Math.max(1, parseInt(aq.value, 10) || 1), 'Service added.') }, 'Add this service'))) : null,
       h('h3', {}, 'Meters'), meterRows.length ? h('ul', { class: 'list' }, meterRows) : h('p', { class: 'muted' }, 'No meters.'),
       canManage && msel.children.length ? h('div', { class: 'addbox' }, h('h3', {}, 'Add a meter'),
-        h('div', { class: 'addgrid' }, h('div', {}, h('label', { for: 'msvc' }, 'Meter for'), msel), h('div', {}, h('label', { for: 'mser' }, 'Meter number'), mser), h('div', {}, h('label', { for: 'mloc' }, 'Where it is (optional)'), mloc),
+        h('div', { class: 'addgrid' }, h('div', {}, h('label', { for: 'msvc' }, 'Meter for'), msel), h('div', {}, h('label', { for: 'mser' }, 'Meter number'), mser), h('div', {}, h('label', { for: 'mloc' }, 'Where on the property (optional)'), mloc),
         h('button', { class: 'btn', type: 'button', onclick: async () => {
           if (!mser.value.trim()) { showError(svcSec, 'Please type the meter number.'); return; }
-          try { await api('POST', '/api/staff/meters', { account_id: id, service_code: msel.value, serial: mser.value.trim(), location: mloc.value.trim() || undefined }); await redo(); announce('Meter added.'); } catch (e) { showError(svcSec, e.message); }
+          try { await api('POST', '/api/staff/meters', { account_id: id, service_code: msel.value, serial: mser.value.trim(), location: [d.account.service_address, mloc.value.trim()].filter(Boolean).join(', ') || undefined }); await redo(); announce('Meter added.'); } catch (e) { showError(svcSec, e.message); }
         } }, 'Add this meter'))) : null);
   };
   drawSvc();
@@ -348,7 +350,7 @@ export const account = safe(async (id) => {
     h('section', { class: 'card' }, h('p', { class: 'muted' }, 'Balance'), h('p', { class: 'owe' }, money(d.balance_cents))), buttons, panel, svcSec,
     h('h2', {}, 'History'),
     d.ledger.length ? h('table', { class: 'tbl' }, h('thead', {}, h('tr', {}, h('th', {}, 'Date'), h('th', {}, 'What'), h('th', {}, 'Amount'))),
-      h('tbody', {}, d.ledger.map((l) => h('tr', {}, h('td', { 'data-label': 'Date' }, plainDate(l.created_at)), h('td', { 'data-label': 'What' }, `${l.kind}${l.memo ? ' - ' + l.memo : ''}`), h('td', { 'data-label': 'Amount', class: 'amount' }, money(l.amount_cents)))))) : h('p', { class: 'muted' }, 'No activity yet.'));
+      h('tbody', {}, d.ledger.map((l) => h('tr', {}, h('td', { 'data-label': 'Date' }, plainDate(l.created_at)), h('td', { 'data-label': 'What' }, `${({ bill: 'Bill', payment: 'Payment', adjustment: 'Adjustment', charge: 'Charge', penalty: 'Late charge', refund: 'Refund', reversal: 'Reversal' })[l.kind] || l.kind}${l.memo ? ': ' + plainNote(l.memo) : ''}`), h('td', { 'data-label': 'Amount', class: 'amount' }, money(l.amount_cents)))))) : h('p', { class: 'muted' }, 'No activity yet.'));
   return out;
 });
 

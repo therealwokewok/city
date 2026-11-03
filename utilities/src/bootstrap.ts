@@ -48,11 +48,11 @@ export async function addExampleRates(db: pg.Pool | pg.Client, cityId: string) {
   const rate = (code: string, cfg: object) => db.query(
     `insert into rates (city_id, service_code, effective_from, config) values ($1, $2, '2026-01-01', $3) on conflict do nothing`,
     [cityId, code, JSON.stringify(cfg)]);
-  await rate('W', { type: 'metered', code: 'W', description: 'Water', base_cents: 1500, included_units: 2000,
+  await rate('W', { type: 'metered', code: 'W', description: 'Water', unit: 'gallons', base_cents: 1500, included_units: 2000,
     tiers: [{ up_to: 10000, mills_per_unit: 500 }, { up_to: null, mills_per_unit: 700 }] });
-  await rate('S', { type: 'metered', code: 'S', description: 'Sewer', basis: 'W', base_cents: 1200, included_units: 0,
+  await rate('S', { type: 'metered', code: 'S', description: 'Sewer', unit: 'gallons', basis: 'W', base_cents: 1200, included_units: 0,
     tiers: [{ up_to: null, mills_per_unit: 300 }] });
-  await rate('E', { type: 'metered', code: 'E', description: 'Electric', per_meter: true, base_cents: 800, included_units: 0,
+  await rate('E', { type: 'metered', code: 'E', description: 'Electric', unit: 'kWh', per_meter: true, base_cents: 800, included_units: 0,
     tiers: [{ up_to: null, mills_per_unit: 9500 }], fuel_adjust_mills_per_unit: 1200 });
   await rate('T', { type: 'flat', code: 'T', description: 'Trash', amount_cents: 1800 });
   await rate('SL', { type: 'flat', code: 'SL', description: 'Security light', amount_cents: 900 });

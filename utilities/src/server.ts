@@ -434,6 +434,11 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
         customerEmail: pending.email, successUrl: `${base}/pay/done?p=${pending.id}`, cancelUrl: `${base}/pay/cancelled?p=${pending.id}`,
       });
       await tx(ctx, (c) => attachProviderRef(c, pending.id, out.ref));
+      // Demo only: the built-in fake processor has no real checkout page, so act as if the payment went through.
+      if (deps.payments.name === 'fake' && req.demo) {
+        const sys: Ctx = { cityId: req.cityId, userId: null, perms: ['payments.settle', 'ledger.post', 'accounts.read'] };
+        await tx(sys, (c) => settleFromEvent(c, 'fake', { eventId: 'demo_' + pending.id, type: 'paid', paymentId: pending.id, amountCents: amount_cents, method: 'card' }));
+      }
       return { url: out.url };
     } catch (e) {
       req.log.error({ err: e }, 'checkout failed');
@@ -455,6 +460,12 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
     const base = `${scheme}://${req.publicHost}`;
     try {
       const out = await deps.payments.createSetup({ accountId: id, customerEmail: req.auth!.email, successUrl: `${base}/#/account/${id}?autopay=1`, cancelUrl: `${base}/#/account/${id}` });
+      // Demo only: the fake processor has no page to save a card on, so enroll a pretend card right away.
+      if (deps.payments.name === 'fake' && req.demo) {
+        const method = await deps.payments.resolveSetup(out.ref);
+        const sys: Ctx = { cityId: req.cityId, userId: null, perms: ['payments.settle', 'ledger.post', 'accounts.read'] };
+        await tx(sys, (c) => enrollFromSetup(c, id, method));
+      }
       return { url: out.url };
     } catch (e) {
       req.log.error({ err: e }, 'autopay setup failed');
@@ -600,8 +611,12 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
     const { status } = parse(z.object({ status: z.enum(['pending', 'flagged', 'accepted', 'rejected']).default('pending') }), req.query);
     return tx(ctxOf(req), async (c) => ({
       readings: (await c.query(
-        `select r.id, r.value, r.read_at, r.status, r.note, m.serial, m.location, m.last_value
-         from readings r join meters m on m.id = r.meter_id where r.status = $1 order by r.read_at limit 500`, [status])).rows,
+        `select r.id, r.value, r.read_at, r.status, r.note, m.serial, m.location, m.last_value,
+                sv.name as service_name, a.account_number, a.name as account_name, a.service_address
+         from readings r join meters m on m.id = r.meter_id
+         left join accounts a on a.id = m.account_id
+         left join services sv on sv.city_id = m.city_id and sv.code = m.service_code
+         where r.status = $1 order by (r.status = 'flagged') desc, r.read_at limit 500`, [status])).rows,
     }));
   });
   app.post('/api/staff/readings/:id/review', async (req) => {

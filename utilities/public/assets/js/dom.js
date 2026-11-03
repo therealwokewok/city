@@ -29,6 +29,8 @@ export function money(cents) {
   const a = Math.abs(cents);
   return `${sign}$${Math.floor(a / 100).toLocaleString('en-US')}.${String(a % 100).padStart(2, '0')}`;
 }
+/** Turns dates like 2026-10-04 inside a note into plain words. */
+export function plainNote(text) { return String(text || '').replace(/\b\d{4}-\d{2}-\d{2}\b/g, (d) => plainDate(d)).replace(/^Bill (.+) to (.+)$/, 'Bill for $1 to $2'); }
 export function plainDate(iso) { // 'YYYY-MM-DD' or a timestamp, shown the same everywhere, no time zone surprises
   if (!iso) return '';
   const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso);

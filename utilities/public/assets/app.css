@@ -259,3 +259,5 @@ main.wide ~ .foot { padding-left: max(1rem, calc((100% - var(--maxw-wide)) / 2 +
   .demo-bar { position: static; font-size: 1rem; padding: .4rem .75rem; }
   .textsize button { min-width: 2.75rem; }
 }
+details.bill-lines summary { cursor: pointer; color: var(--primary); text-decoration: underline; font-size: 1rem; min-height: 2.75rem; display: flex; align-items: center; }
+details.bill-lines ul { margin: .25rem 0 .5rem; padding-left: 1.25rem; font-size: 1rem; }

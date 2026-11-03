@@ -68,7 +68,7 @@ export async function list() {
       const queued = q.find((x) => x.meter_id === m.id);
       const done = sent[m.id];
       return h('li', {}, h('a', { class: 'row2', href: `#/read/${m.id}` },
-        h('span', {}, h('strong', {}, m.location || 'No address'), h('br'), h('span', { class: 'muted' }, `${m.service_name || m.service_code}, meter ${m.serial.split('-').pop()}`)),
+        h('span', {}, h('strong', {}, m.location || 'No address on file'), h('br'), h('span', { class: 'muted' }, `${m.service_name || m.service_code} meter ${m.serial}`)),
         queued ? h('span', { class: `status ${queued.error ? 'bad' : 'warn'}` }, queued.error ? '! Needs a look' : 'Saved') : done ? h('span', { class: 'status ok' }, '✓ Sent') : h('span', { class: 'muted' }, `Last: ${m.last_value ?? 'none'}`)));
     }) : [h('li', { class: 'muted' }, 'No meters match.')]));
   };
@@ -86,7 +86,7 @@ export async function entry(meterId) {
   const m = meters.find((x) => x.id === meterId);
   if (!m) return h('div', {}, h('h1', {}, 'Meter not found'), h('a', { class: 'btn', href: '#/read' }, 'Back to the list'));
   const form = h('form', { novalidate: true },
-    h('p', { class: 'muted' }, `${m.service_name || m.service_code}, meter ${m.serial.split('-').pop()}`),
+    h('p', { class: 'muted' }, `${m.service_name || m.service_code} meter ${m.serial}`),
     h('p', {}, 'Last reading: ', h('strong', {}, m.last_value ?? 'none yet')),
     field({ id: 'val', label: 'What does the meter say now?', hint: 'Numbers only', inputmode: 'decimal', autocomplete: 'off', required: true, class: 'code' }),
     field({ id: 'note', label: 'Note (only if needed)', hint: 'For example: dog in yard, meter buried', tag: 'textarea', maxlength: 500 }),
