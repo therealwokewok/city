@@ -9,6 +9,7 @@ export type Units = 'in' | 'mm' | 'pt';
 export interface Field {
   source: string; x: number; y: number; width?: number; size?: number; align?: 'left' | 'center' | 'right';
   bold?: boolean; text?: string; label?: string; row_height?: number;
+  height?: number; // for bill.lines: how much room the list may use, so it never prints over what is below it
 }
 export interface PrintProfile {
   units: Units;
@@ -22,6 +23,14 @@ export const BILL_SOURCES = ['static', 'city.name', 'city.return_address', 'city
 export const ENVELOPE_SOURCES = ['static', 'city.name', 'return_address', 'recipient'];
 
 const PT: Record<Units, number> = { in: 72, mm: 72 / 25.4, pt: 1 };
+
+/** How many charge lines to print in `rows` rows; when they do not all fit, the last row says how many more. */
+export function linesThatFit(count: number, rows: number): { show: number; more: number } {
+  if (rows <= 0) return { show: 0, more: count };
+  if (count <= rows) return { show: count, more: 0 };
+  return { show: rows - 1, more: count - (rows - 1) };
+}
+export const moreText = (n: number) => `...and ${n} more charge${n === 1 ? '' : 's'}, included in the total`;
 
 export function validateProfile(kind: 'bill' | 'envelope', cfg: any): PrintProfile {
   const bad = (m: string): never => { throw new Error('invalid print profile: ' + m); };
@@ -40,8 +49,10 @@ export function validateProfile(kind: 'bill' | 'envelope', cfg: any): PrintProfi
     if (f.x < 0 || f.y < 0 || f.x > w || f.y > h) bad(`field ${f.source} is outside the page`);
     if (f.size !== undefined && !(f.size >= 4 && f.size <= 72)) bad('font size must be 4 to 72 points');
     if (f.width !== undefined && !(f.width > 0 && f.width <= w)) bad('field width is off the page');
+    if (f.height !== undefined && !(f.height > 0 && f.y + f.height <= h + 1e-9)) bad('field height runs off the page');
     if (f.source === 'static' && (typeof f.text !== 'string' || f.text.length > 300)) bad('static text must be under 300 characters');
     if (f.align !== undefined && !['left', 'center', 'right'].includes(f.align)) bad('align');
+    if (f.label !== undefined && (typeof f.label !== 'string' || f.label.length > 40)) bad('words before an item must be under 40 characters');
   }
   return cfg as PrintProfile;
 }
@@ -95,14 +106,14 @@ export function renderBills(profile: PrintProfile, bills: BillData[]): Promise<B
       for (const f of profile.fields) {
         switch (f.source) {
           case 'static': put(doc, k, f, f.text ?? '', profile.page.width); break;
-          case 'city.name': put(doc, k, f, b.city.name, profile.page.width); break;
-          case 'city.return_address': put(doc, k, f, b.city.return_address, profile.page.width); break;
-          case 'city.remit_to': put(doc, k, f, b.city.remit_to, profile.page.width); break;
-          case 'city.office_hours': put(doc, k, f, b.city.office_hours, profile.page.width); break;
-          case 'account.name': put(doc, k, f, b.account.name, profile.page.width); break;
+          case 'city.name': put(doc, k, f, (f.label ?? '') + (b.city.name), profile.page.width); break;
+          case 'city.return_address': put(doc, k, f, (f.label ?? '') + (b.city.return_address), profile.page.width); break;
+          case 'city.remit_to': put(doc, k, f, (f.label ?? '') + (b.city.remit_to), profile.page.width); break;
+          case 'city.office_hours': put(doc, k, f, (f.label ?? '') + (b.city.office_hours), profile.page.width); break;
+          case 'account.name': put(doc, k, f, (f.label ?? '') + (b.account.name), profile.page.width); break;
           case 'account.number': put(doc, k, f, (f.label ?? '') + b.account.number, profile.page.width); break;
-          case 'account.service_address': put(doc, k, f, b.account.service_address, profile.page.width); break;
-          case 'account.mailing_address': put(doc, k, f, b.account.mailing_address ?? b.account.service_address, profile.page.width); break;
+          case 'account.service_address': put(doc, k, f, (f.label ?? '') + (b.account.service_address), profile.page.width); break;
+          case 'account.mailing_address': put(doc, k, f, (f.label ?? '') + (b.account.mailing_address ?? b.account.service_address), profile.page.width); break;
           case 'bill.period': put(doc, k, f, (f.label ?? '') + b.period, profile.page.width); break;
           case 'bill.due': put(doc, k, f, (f.label ?? '') + b.due, profile.page.width); break;
           case 'bill.total': put(doc, k, f, (f.label ?? '') + fmt(b.total_cents), profile.page.width); break;
@@ -111,14 +122,19 @@ export function renderBills(profile: PrintProfile, bills: BillData[]): Promise<B
             const rowH = f.row_height ?? (size * 1.5) / PT[profile.units]; // in profile units
             const width = f.width ?? profile.page.width - f.x;
             let y = f.y;
-            const maxY = profile.page.height;
-            for (const l of b.lines) {
-              if (y + rowH > maxY) break; // the profile decides how much room there is
+            const maxY = f.height ? f.y + f.height : profile.page.height;
+            const fit = linesThatFit(b.lines.length, Math.floor((maxY - f.y + 1e-9) / rowH));
+            for (const l of b.lines.slice(0, fit.show)) {
               doc.font('Helvetica').fontSize(size).fillColor('#000');
               doc.text(l.code, f.x * k, y * k, { width: width * 0.15 * k, lineBreak: false });
               doc.text(l.description + (l.meter ? ` (${l.meter})` : ''), (f.x + width * 0.17) * k, y * k, { width: width * 0.55 * k, lineBreak: false });
               doc.text(fmt(l.amount_cents), (f.x + width * 0.72) * k, y * k, { width: width * 0.28 * k, align: 'right', lineBreak: false });
               y += rowH;
+            }
+            // Out of room: say so on the last row, so nobody thinks a charge is missing from the total.
+            if (fit.more) {
+              doc.font('Helvetica-Oblique').fontSize(size).fillColor('#000')
+                .text(moreText(fit.more), f.x * k, y * k, { width: width * k, lineBreak: false });
             }
             break;
           }

@@ -425,3 +425,13 @@ describe('print layouts', () => {
     expect(JSON.stringify(r.json)).toMatch(/blank/);
   });
 });
+
+describe('printing a long bill', () => {
+  it('the list of charges stops in its own space and says how many more there are', async () => {
+    const { linesThatFit, moreText } = await import('../src/printing.js');
+    expect(linesThatFit(5, 10)).toEqual({ show: 5, more: 0 });
+    expect(linesThatFit(10, 10)).toEqual({ show: 10, more: 0 });
+    expect(linesThatFit(40, 6)).toEqual({ show: 5, more: 35 });
+    expect(moreText(1)).toBe('...and 1 more charge, included in the total');
+  });
+});

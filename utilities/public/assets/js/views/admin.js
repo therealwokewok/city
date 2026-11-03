@@ -337,8 +337,8 @@ const STARTER = {
     { source: 'account.name', x: 1, y: 2.1, size: 11 },
     { source: 'account.mailing_address', x: 1, y: 2.3, size: 11, width: 3.5 },
     { source: 'account.service_address', x: 5, y: 1.25, size: 9, width: 3 },
-    { source: 'bill.lines', x: 0.5, y: 4, size: 10, width: 7.5 },
-    { source: 'bill.total', x: 5, y: 7.2, size: 13, label: 'Total due: ' },
+    { source: 'bill.lines', x: 0.5, y: 3.6, size: 10, width: 7.5, height: 4 },
+    { source: 'bill.total', x: 5, y: 7.9, size: 13, label: 'Total due: ' },
     { source: 'static', x: 0.5, y: 9, size: 9, text: 'Please return this part with your payment.' },
     { source: 'city.remit_to', x: 0.5, y: 9.3, size: 10, width: 4 },
     { source: 'city.office_hours', x: 0.5, y: 10.4, size: 8, width: 7.5 },
@@ -376,6 +376,8 @@ export const printing = safe(async () => {
       const row = h('fieldset', { class: 'card pf' }, h('legend', {}, `Item ${i + 1}`),
         select(`s${i}`, 'What prints here', sources.map((s) => [s, SRC_LABEL[s] || s]), fd.source),
         h('div', { class: 'st', hidden: fd.source === 'static' ? null : true }, field({ id: `t${i}`, label: 'Text to print', value: fd.text || '', maxlength: 300, autocomplete: 'off' })),
+        h('div', { class: 'lb', hidden: fd.source === 'static' ? true : null }, field({ id: `l${i}`, label: 'Words printed before it (optional)', hint: 'For example "Due: " or "Account: "', value: fd.label || '', maxlength: 40, autocomplete: 'off' })),
+        h('div', { class: 'hg', hidden: fd.source === 'bill.lines' ? null : true }, field({ id: `g${i}`, label: 'Room for the list of charges, top to bottom (optional)', hint: 'The list stops here so it never prints over what is below it', inputmode: 'decimal', value: fd.height ?? '', autocomplete: 'off' })),
         field({ id: `x${i}`, label: 'Distance from the left edge', inputmode: 'decimal', value: fd.x, autocomplete: 'off' }),
         field({ id: `y${i}`, label: 'Distance from the top edge', inputmode: 'decimal', value: fd.y, autocomplete: 'off' }),
         field({ id: `w${i}`, label: 'Width (optional)', hint: 'Text wraps at this width', inputmode: 'decimal', value: fd.width ?? '', autocomplete: 'off' }),
@@ -383,7 +385,11 @@ export const printing = safe(async () => {
         select(`a${i}`, 'Line up text', [['left', 'On the left'], ['center', 'In the middle'], ['right', 'On the right']], fd.align || 'left'),
         h('label', { class: 'check' }, h('input', { type: 'checkbox', id: `b${i}`, checked: fd.bold ? true : null }), 'Bold'),
         h('div', { class: 'actions' }, h('button', { class: 'btn secondary small', type: 'button', onclick: () => { row.remove(); renumber(); } }, 'Remove this item')));
-      row.querySelector('select').addEventListener('change', (e) => { row.querySelector('.st').hidden = e.target.value !== 'static'; });
+      row.querySelector('select').addEventListener('change', (e) => {
+        row.querySelector('.st').hidden = e.target.value !== 'static';
+        row.querySelector('.lb').hidden = e.target.value === 'static';
+        row.querySelector('.hg').hidden = e.target.value !== 'bill.lines';
+      });
       row._src = fd; rowsHost.append(row);
     };
     const renumber = () => { [...rowsHost.children].forEach((r, i) => { r.querySelector('legend').textContent = `Item ${i + 1}`; }); };
@@ -413,14 +419,17 @@ export const printing = safe(async () => {
         const name = v('nm').trim(); if (!name) throw new Error('Please give this layout a name.');
         const w = num(v('pw')), hh = num(v('ph'));
         if (!(w > 0) || !(hh > 0)) throw new Error('Please type the paper width and height as numbers, like 8.5 and 11.');
-        const fields = [...rowsHost.children].map((_, i) => {
-          const o = { source: v('s' + i), x: num(v('x' + i)), y: num(v('y' + i)), align: v('a' + i) };
+        const fields = [...rowsHost.children].map((row, i) => {
+          // keep settings this form does not show (such as row spacing), then apply what it does show
+          const o = { ...(row._src?.row_height ? { row_height: row._src.row_height } : {}), source: v('s' + i), x: num(v('x' + i)), y: num(v('y' + i)), align: v('a' + i) };
           if (o.x === null || o.y === null) throw new Error(`Item ${i + 1}: please type how far it sits from the left and from the top.`);
           if (o.source === 'static') o.text = v('t' + i);
           const wd = v('w' + i).trim() ? num(v('w' + i)) : undefined, sz = v('z' + i).trim() ? num(v('z' + i)) : undefined;
           if (wd !== undefined) { if (!(wd > 0)) throw new Error(`Item ${i + 1}: width must be a number.`); o.width = wd; }
           if (sz !== undefined) { if (!(sz >= 4 && sz <= 72)) throw new Error(`Item ${i + 1}: text size must be between 4 and 72.`); o.size = sz; }
           if (f.querySelector('#b' + i).checked) o.bold = true;
+          if (o.source !== 'static' && v('l' + i)) o.label = v('l' + i);
+          if (o.source === 'bill.lines' && v('g' + i).trim()) { const g = num(v('g' + i)); if (!(g > 0)) throw new Error(`Item ${i + 1}: the room for the list must be a number.`); o.height = g; }
           return o;
         });
         const config = { units: v('un'), page: { width: w, height: hh }, fields, ...(f.querySelector('#mk').checked ? { marks: true } : {}) };

@@ -99,10 +99,14 @@ test('admin: add, test-print and delete an envelope layout', async ({ page }, in
   await page.getByLabel('Name for this layout').fill('Window envelope');
   await page.getByLabel('Paper width').fill('9.5');
   await page.getByLabel('Paper height').fill('4.125');
+  // a new layout starts with the return address and the recipient already placed
+  await expect(page.getByRole('group', { name: /^Item \d$/ })).toHaveCount(2);
   await page.getByRole('button', { name: 'Add an item' }).click();
-  await page.getByLabel('What prints here').selectOption('recipient');
-  await page.getByLabel('Distance from the left edge').fill('1');
-  await page.getByLabel('Distance from the top edge').fill('1.5');
+  const item3 = page.getByRole('group', { name: 'Item 3' });
+  await item3.getByLabel('What prints here').selectOption('city.name');
+  await item3.getByLabel('Distance from the left edge').fill('1');
+  await item3.getByLabel('Distance from the top edge').fill('1.5');
+  await item3.getByLabel('Words printed before it (optional)').fill('From: ');
   expect((await axe(page)).violations).toEqual([]);
   await page.screenshot({ path: `e2e-shots/${info.project.name}-admin-print-editor.png`, fullPage: true });
   await page.getByRole('button', { name: 'Save layout' }).click();
@@ -113,6 +117,8 @@ test('admin: add, test-print and delete an envelope layout', async ({ page }, in
   expect(pdf.status()).toBe(200);
   expect(pdf.headers()['content-type']).toContain('application/pdf');
   await row.getByRole('button', { name: 'Change' }).click();
+  // what was typed comes back when the layout is opened again
+  await expect(page.getByRole('group', { name: 'Item 3' }).getByLabel('Words printed before it (optional)')).toHaveValue('From: ');
   await page.getByRole('button', { name: 'Delete this layout' }).click();
   await page.getByRole('button', { name: 'Yes, delete it' }).click();
   await expect(page.locator('#main').getByText('Layout deleted.')).toBeVisible();
