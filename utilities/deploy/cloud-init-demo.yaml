@@ -1,21 +1,27 @@
 #cloud-config
-# Builds or updates a demo server on an Ubuntu cloud image. Safe to run again: it pulls the latest
-# code, keeps the existing database and passwords, and only adds what is missing.
+# Builds a demo server on an Ubuntu cloud image, and updates it on every restart: it pulls the
+# latest code, keeps the existing database and passwords, and only adds what is missing.
 # Change the values in the "settings" block of install-demo.sh before using it for another city.
 ssh_pwauth: false
 package_update: true
 packages: [git, ca-certificates, curl, ufw]
 write_files:
-  - path: /usr/local/bin/install-demo.sh
+  - path: /var/lib/cloud/scripts/per-boot/install-demo.sh
     permissions: "0755"
     content: |
       #!/bin/sh
+      # Runs at every start. Output goes to /var/log/install-demo.log
+      exec >> /var/log/install-demo.log 2>&1
+      echo "---- $(date -u)"
       set -e
       # ---- settings ----
       HOSTS="utilities.osceolamo.com, utilities-test.osceolamo.com"
       MAIN_HOST=utilities.osceolamo.com
       ADMIN_EMAIL=coryscline@gmail.com
       TEST_DOMAIN=corycline.com
+      # Shown on the demo the first time it is set up; change them in the app afterwards.
+      CITY_NAME="City of Osceola"
+      CITY_SETTINGS='{"phone": "(417) 646-8421", "office_hours": "Monday to Friday, 8:00 AM to 4:00 PM", "return_address": "City of Osceola\\n210 Olive St\\nOsceola, MO 64776", "remit_to": "City of Osceola, 210 Olive St, Osceola, MO 64776", "theme_color": "#173f4a", "accent_color": "#8f2f1f", "rule_color": "#d9a33a", "demo_branded": true}'
       EMAIL_API_URL=https://utilities-mail-relay.city-of-osceola-missouri.workers.dev
       EMAIL_FROM=utilities-demo@osceolamo.com
       # ------------------
@@ -41,10 +47,9 @@ write_files:
       if [ "$(psql 'select count(*) from cities')" = "0" ]; then
         docker compose -f docker-compose.demo.yml exec -T -e OWNER_DATABASE_URL="$OWN" -e DEMO_HOSTS="$MAIN_HOST" -e DEMO_ADMIN_EMAIL="$ADMIN_EMAIL" app node dist/scripts/seed.js > /var/log/demo-seed.log 2>&1
       fi
+      psql "update cities set name = '$CITY_NAME', settings = settings || '$CITY_SETTINGS'::jsonb where '$MAIN_HOST' = any(hosts) and not settings ? 'demo_branded'"
       for h in $(echo "$HOSTS" | tr ',' ' '); do
         psql "update cities set hosts = array_append(hosts, '$h') where '$MAIN_HOST' = any(hosts) and not '$h' = any(hosts)"
       done
       docker compose -f docker-compose.demo.yml exec -T -e OWNER_DATABASE_URL="$OWN" app node dist/scripts/test-users.js "$MAIN_HOST" "$TEST_DOMAIN" > /var/log/demo-test-users.log 2>&1
       echo "demo ready $(date -u)"
-runcmd:
-  - [sh, -c, "/usr/local/bin/install-demo.sh > /var/log/install-demo.log 2>&1"]

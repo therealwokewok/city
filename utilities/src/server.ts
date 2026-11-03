@@ -22,7 +22,7 @@ import { approveRun, balance, calculateRun, createCharge, createRun, decideAppro
   shutoffList, submitReading } from './domain/billing.js';
 import { attachProviderRef, createPendingPayment, recordCounterPayment, settleFromEvent } from './domain/payments.js';
 import { BillData, EnvelopeData, renderBills, renderEnvelopes, renderTestPage, validateProfile } from './printing.js';
-import { assertMoneyAllowed, loadSettings, validateSettings } from './settings.js';
+import { assertMoneyAllowed, loadSettings, themeCss, validateSettings } from './settings.js';
 
 declare module 'fastify' {
   interface FastifyRequest {
@@ -166,11 +166,9 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
 
   // ---- look and feel: theme color and logo (public, so the sign-in page can use them) ----
   app.get('/theme.css', async (req, reply) => {
-    const color = await tx(baseCtx(req), async (c) => (await loadSettings(c)).theme_color);
+    const s = await tx(baseCtx(req), async (c) => loadSettings(c));
     reply.header('content-type', 'text/css; charset=utf-8').header('cache-control', 'no-cache');
-    if (!/^#[0-9a-f]{6}$/.test(color)) return '';
-    const dark = (h: string) => '#' + [1, 3, 5].map((i) => Math.round(parseInt(h.slice(i, i + 2), 16) * 0.78).toString(16).padStart(2, '0')).join('');
-    return `:root { --primary: ${color}; --primary-hover: ${dark(color)}; --primary-text: #ffffff; }\n`;
+    return themeCss(s);
   });
   app.get('/api/city/logo', async (req, reply) => {
     const row = await tx(baseCtx(req), async (c) => (await c.query('select content_type, data from city_logo')).rows[0]);
@@ -955,7 +953,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   const pub = path.resolve(process.env.PUBLIC_DIR ?? path.join(process.cwd(), 'public'));
   const TYPES: Record<string, string> = {
     '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8',
-    '.svg': 'image/svg+xml', '.png': 'image/png', '.webmanifest': 'application/manifest+json', '.json': 'application/json',
+    '.svg': 'image/svg+xml', '.woff2': 'font/woff2', '.txt': 'text/plain; charset=utf-8', '.png': 'image/png', '.webmanifest': 'application/manifest+json', '.json': 'application/json',
   };
   const sendStatic = (reply: import('fastify').FastifyReply, rel: string) => {
     const file = path.resolve(pub, '.' + path.sep + rel);

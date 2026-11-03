@@ -156,9 +156,9 @@ window.addEventListener('hashchange', render);
 // ---------- start ----------
 (async function start() {
   try { state.city = await api('GET', '/api/city'); } catch { state.city = { name: 'City utilities' }; }
-  $('#brand').textContent = `${state.city.name} utilities`;
+  { const b = $('#brand'); b.textContent = ''; const n = document.createElement('span'); n.className = 'brand-name'; n.textContent = state.city.name; const u = document.createElement('span'); u.className = 'brand-sub'; u.textContent = 'Utilities'; b.append(n, u); }
   if (state.city.has_logo) { const img = document.createElement('img'); img.src = '/api/city/logo'; img.alt = ''; img.className = 'brand-logo'; $('#brand').prepend(img); }
-  if (state.city.demo) { const d = $('#demo'); d.hidden = false; d.textContent = `Demo. This is not the official ${state.city.name} utility system. No real bills or payments.`; document.body.classList.add('is-demo'); }
+  if (state.city.demo) { const d = $('#demo'); d.hidden = false; d.textContent = ''; const st = document.createElement('strong'); st.textContent = 'Demo site.'; d.append(st, ` This is not the official ${state.city.name} utility system. No real bills or payments.`); document.body.classList.add('is-demo'); }
   drawFooter();
   try { state.me = await api('GET', '/api/me'); } catch { state.me = null; }
   if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {});

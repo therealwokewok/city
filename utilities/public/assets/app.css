@@ -1,3 +1,10 @@
+/* Fonts are stored with the app (SIL Open Font License, see fonts/OFL-*.txt) so nothing loads from elsewhere. */
+@font-face { font-family: "Libre Franklin"; font-weight: 400; font-display: swap; src: url(fonts/libre-franklin-latin-400-normal.woff2) format("woff2"); }
+@font-face { font-family: "Libre Franklin"; font-weight: 600; font-display: swap; src: url(fonts/libre-franklin-latin-600-normal.woff2) format("woff2"); }
+@font-face { font-family: "Libre Franklin"; font-weight: 700; font-display: swap; src: url(fonts/libre-franklin-latin-700-normal.woff2) format("woff2"); }
+@font-face { font-family: "Zilla Slab"; font-weight: 500; font-display: swap; src: url(fonts/zilla-slab-latin-500-normal.woff2) format("woff2"); }
+@font-face { font-family: "Zilla Slab"; font-weight: 500; font-style: italic; font-display: swap; src: url(fonts/zilla-slab-latin-500-italic.woff2) format("woff2"); }
+@font-face { font-family: "Zilla Slab"; font-weight: 700; font-display: swap; src: url(fonts/zilla-slab-latin-700-normal.woff2) format("woff2"); }
 /*
   Design rules for this app (older eyes and young thumbs):
   - Phone first. One column. Big type (20px base), big buttons (56px), plain words.
@@ -15,6 +22,15 @@
   --primary: #0b4f8a;
   --primary-text: #ffffff;
   --primary-hover: #083d6b;
+  --header: #0b4f8a;                /* top bar; a city sets it under Colors and logo */
+  --header-text: #ffffff;
+  --accent: var(--primary);         /* buttons */
+  --accent-hover: var(--primary-hover);
+  --rule: transparent;              /* stripe under the top bar */
+  --brand-sub: #ffffff;
+  --heading: var(--text);
+  --font-body: "Libre Franklin", "Franklin Gothic Book", "Segoe UI", Arial, sans-serif;
+  --font-display: "Zilla Slab", Rockwell, "Roboto Slab", Georgia, serif;
   --ok: #14633a;
   --ok-bg: #e5f4ea;
   --warn: #6b4600;
@@ -22,14 +38,15 @@
   --bad: #9b1c1c;
   --bad-bg: #fde8e8;
   --focus: #ffbf47;
-  --radius: 14px;
+  --radius: 6px;
   --tap: 3.5rem;
   --maxw: 44rem;
 }
 @media (prefers-color-scheme: dark) {
   :root {
     --bg: #12161b; --card: #1b2128; --text: #f3f3f3; --muted: #cfd3d8; --line: #8b95a1; --soft-line: #3a434d;
-    --primary: #8cc4ff; --primary-text: #08233d; --primary-hover: #b3d8ff;
+    --primary: #8cc4ff; --primary-text: #08233d; --primary-hover: #b3d8ff; --heading: #f3f3f3;
+    --accent: #8cc4ff; --accent-hover: #b3d8ff; --header: #163a5c;
     --ok: #7fd9a1; --ok-bg: #12301f; --warn: #ffd98a; --warn-bg: #3a2c08; --bad: #ffb0b0; --bad-bg: #3d1616;
   }
 }
@@ -39,12 +56,13 @@ html[data-size="125"] { font-size: 125%; }
 html[data-size="150"] { font-size: 150%; }
 body {
   margin: 0; background: var(--bg); color: var(--text);
-  font: 1.25rem/1.5 system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  font: 1.25rem/1.5 var(--font-body);
   padding-bottom: env(safe-area-inset-bottom);
 }
-h1 { font-size: 1.9rem; line-height: 1.25; margin: 0 0 .75rem; }
-h2 { font-size: 1.45rem; line-height: 1.3; margin: 1.5rem 0 .5rem; }
-h3 { font-size: 1.2rem; margin: 1rem 0 .25rem; }
+h1, h2, h3 { font-family: var(--font-display); color: var(--heading); font-weight: 700; }
+h1 { font-size: 2.1rem; line-height: 1.15; margin: 0 0 .75rem; }
+h2 { font-size: 1.55rem; line-height: 1.25; margin: 1.5rem 0 .5rem; }
+h3 { font-size: 1.25rem; margin: 1rem 0 .25rem; }
 p { margin: 0 0 1rem; max-width: 38rem; }
 a { color: var(--primary); text-underline-offset: .15em; }
 a:hover { color: var(--primary-hover); }
@@ -57,17 +75,20 @@ h1:focus { outline: none; }
 
 /* header */
 .top { display: flex; align-items: center; justify-content: space-between; gap: .75rem; flex-wrap: wrap;
-  padding: .75rem 1rem; background: var(--primary); color: var(--primary-text); }
-.brand { color: var(--primary-text); font-weight: 700; font-size: 1.25rem; text-decoration: none; }
-.brand:hover { color: var(--primary-text); text-decoration: underline; }
+  padding: .75rem 1rem; background: var(--header); color: var(--header-text);
+  border-bottom: 5px solid var(--rule); box-shadow: 0 3px 0 var(--accent); }
+.brand { color: var(--header-text); text-decoration: none; display: inline-flex; align-items: baseline; gap: .5rem; flex-wrap: wrap; }
+.brand-name { font-family: var(--font-display); font-weight: 700; font-size: 1.6rem; line-height: 1.1; }
+.brand-sub { font-family: var(--font-display); font-style: italic; font-weight: 500; font-size: 1.15rem; color: var(--brand-sub); }
+.brand:hover { color: var(--header-text); text-decoration: underline; }
 .top-tools { display: flex; align-items: center; gap: .75rem; }
 .textsize { display: flex; gap: .25rem; }
-.textsize button { min-width: 2.75rem; min-height: 2.75rem; border: 2px solid var(--primary-text); background: transparent;
-  color: var(--primary-text); border-radius: 10px; font-weight: 700; cursor: pointer; }
+.textsize button { min-width: 2.75rem; min-height: 2.75rem; border: 2px solid var(--header-text); background: transparent;
+  color: var(--header-text); border-radius: 6px; font-weight: 700; cursor: pointer; }
 .textsize button:nth-child(1) { font-size: .9rem; } .textsize button:nth-child(2) { font-size: 1.15rem; } .textsize button:nth-child(3) { font-size: 1.45rem; }
-.textsize button[aria-pressed="true"] { background: var(--primary-text); color: var(--primary); }
+.textsize button[aria-pressed="true"] { background: var(--header-text); color: var(--header); }
 .linkish { background: none; border: 0; color: inherit; text-decoration: underline; font: inherit; min-height: 2.75rem; padding: 0 .5rem; cursor: pointer; }
-.top .linkish { color: var(--primary-text); white-space: nowrap; }
+.top .linkish { color: var(--header-text); white-space: nowrap; }
 .banner { padding: .75rem 1rem; background: var(--warn-bg); color: var(--warn); border-bottom: 2px solid var(--warn); font-weight: 600; }
 
 main { max-width: var(--maxw); margin: 0 auto; padding: 1.25rem 1rem 7rem; }
@@ -77,12 +98,12 @@ main.wide { max-width: 64rem; }
 /* buttons */
 .btn, button.btn {
   display: inline-flex; align-items: center; justify-content: center; gap: .5rem; width: 100%;
-  min-height: var(--tap); padding: .5rem 1.5rem; border-radius: var(--radius); border: 3px solid var(--primary);
-  background: var(--primary); color: var(--primary-text); font: inherit; font-weight: 700; text-decoration: none; cursor: pointer;
+  min-height: var(--tap); padding: .5rem 1.5rem; border-radius: var(--radius); border: 3px solid var(--accent);
+  background: var(--accent); color: var(--primary-text); font: inherit; font-weight: 700; text-decoration: none; cursor: pointer;
 }
-.btn:hover { background: var(--primary-hover); border-color: var(--primary-hover); color: var(--primary-text); }
-.btn.secondary { background: transparent; color: var(--primary); }
-.btn.secondary:hover { background: var(--primary); color: var(--primary-text); }
+.btn:hover { background: var(--accent-hover); border-color: var(--accent-hover); color: var(--primary-text); }
+.btn.secondary { background: transparent; color: var(--accent); }
+.btn.secondary:hover { background: var(--accent); color: var(--primary-text); }
 .btn.danger { background: var(--bad); border-color: var(--bad); color: var(--card); }
 .btn[disabled], .btn[aria-disabled="true"] { opacity: .55; cursor: not-allowed; }
 .btn.small { min-height: 3rem; width: auto; padding: .25rem 1rem; }
@@ -192,7 +213,9 @@ input.qty { width: 5rem; min-height: var(--tap); font-size: 1.125rem; padding: .
 input[type=color], input[type=file] { min-height: var(--tap); width: 100%; font: inherit; }
 
 /* Demo mode: a bar at the top and a faint DEMO behind the page. The watermark is decorative and hidden from screen readers. */
-.demo-bar { position: sticky; top: 0; z-index: 60; padding: .5rem 1rem; background: #ffe8a3; color: #3d2c00; border-bottom: 3px solid #8a5a00; font-weight: 700; text-align: center; }
+.demo-bar { position: sticky; top: 0; z-index: 60; padding: .5rem 1rem; color: #1e2a2e; font-weight: 600;
+  background: repeating-linear-gradient(-45deg, #ffd34d 0 22px, #ffc928 22px 44px); border-bottom: 3px solid #1e2a2e; }
+.demo-bar strong { font-weight: 800; }
 body.is-demo::before { content: "DEMO" / ""; position: fixed; inset: 0; z-index: 0; display: flex; align-items: center; justify-content: center;
   font-size: min(32vw, 14rem); font-weight: 900; letter-spacing: .1em; color: var(--text); opacity: .05; transform: rotate(-24deg); pointer-events: none; user-select: none; }
 @media print { .demo-bar { display: none; } }

@@ -12,14 +12,20 @@ test('admin: colors and logo screen, and a color is saved after the safety check
   await expect(page.getByRole('heading', { level: 1, name: 'Colors, logo and demo mode' })).toBeVisible();
   expect((await axe(page)).violations).toEqual([]);
   await noSidewaysScroll(page); await bigEnoughTargets(page);
-  await page.getByLabel('Color').fill('#7a1f2b');
-  await page.getByRole('button', { name: 'Save the color' }).click();
+  await page.getByLabel('Top bar and headings').fill('#173f4a');
+  await page.getByLabel('Buttons').fill('#8f2f1f');
+  await page.getByLabel('No stripe').uncheck();
+  await page.getByLabel('Stripe under the top bar').fill('#d9a33a');
+  await page.getByRole('button', { name: 'Save the colors' }).click();
   await safetyCheck(page, 'admin@example.test');
-  await expect(page.locator('#main').getByText(/Color saved/)).toBeVisible();
+  await expect(page.locator('#main').getByText(/Colors saved/)).toBeVisible();
   const css = await (await page.request.get('/theme.css')).text();
-  expect(css).toContain('#7a1f2b');
-  await page.getByRole('button', { name: 'Go back to the standard blue' }).click();
-  await expect(page.locator('#main').getByText(/Back to the standard blue/)).toBeVisible();
+  expect(css).toContain('#173f4a'); expect(css).toContain('#8f2f1f'); expect(css).toContain('#d9a33a');
+  await page.reload();
+  await expect(page.locator('.top')).toHaveCSS('background-color', 'rgb(23, 63, 74)');
+  expect((await axe(page)).violations).toEqual([]);
+  await page.getByRole('button', { name: 'Go back to the standard colors' }).click();
+  await expect(page.locator('#main').getByText(/Back to the standard colors/)).toBeVisible();
 });
 
 test('admin: updates screen shows the standard GitHub address', async ({ page }) => {

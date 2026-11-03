@@ -421,14 +421,22 @@ export const audit = safe(async () => {
 export const appearance = safe(async () => {
   const s = await api('GET', '/api/staff/settings');
   const msg = h('div', { role: 'status' });
-  const color = h('input', { id: 'color', type: 'color', value: s.theme_color || '#0b4f8a' });
-  const form = h('form', { novalidate: true, class: 'card' }, h('h2', {}, 'Main color'),
-    h('p', { class: 'hint' }, 'Used for the top bar and buttons. Dark colors work best because the words on them are white. Colors that are too light are not accepted.'),
-    h('div', { class: 'field' }, h('label', { for: 'color' }, 'Color'), color),
-    h('div', { class: 'actions' }, h('button', { class: 'btn', type: 'submit' }, 'Save the color'), h('button', { class: 'btn secondary', type: 'button', id: 'reset-color' }, 'Go back to the standard blue')));
-  const save = async (value, btn, done) => { try { await busy(btn, 'Saving...', () => api('PUT', '/api/staff/settings', { theme_color: value })); say(msg, done + ' Reload the page to see it.'); } catch (e) { showError(form, e.message); } };
-  form.addEventListener('submit', (e) => { e.preventDefault(); save(color.value, form.querySelector('button[type=submit]'), 'Color saved.'); });
-  form.querySelector('#reset-color').addEventListener('click', (e) => save('', e.target, 'Back to the standard blue.'));
+  const pick = (id, label, hint, value, fallback) => h('div', { class: 'field' }, h('label', { for: id }, label), h('p', { class: 'hint', id: id + '-hint' }, hint),
+    h('input', { id, type: 'color', value: value || fallback, 'aria-describedby': id + '-hint' }));
+  const form = h('form', { novalidate: true, class: 'card' }, h('h2', {}, 'City colors'),
+    h('p', { class: 'hint' }, 'Match your city website. The words on the top bar and on buttons are white, so those two colors must be dark. Colors that are too light are not accepted.'),
+    pick('color', 'Top bar and headings', 'The band across the top of every page.', s.theme_color, '#0b4f8a'),
+    pick('accent', 'Buttons', 'Buttons such as Pay my bill.', s.accent_color || s.theme_color, '#0b4f8a'),
+    pick('rule', 'Stripe under the top bar', 'A thin line of color. Any color works.', s.rule_color, '#d9a33a'),
+    h('label', { class: 'check' }, h('input', { type: 'checkbox', id: 'no-rule', checked: !s.rule_color }), 'No stripe'),
+    h('div', { class: 'actions' }, h('button', { class: 'btn', type: 'submit' }, 'Save the colors'), h('button', { class: 'btn secondary', type: 'button', id: 'reset-color' }, 'Go back to the standard colors')));
+  const save = async (value, btn, done) => { try { await busy(btn, 'Saving...', () => api('PUT', '/api/staff/settings', value)); say(msg, done + ' Reload the page to see it.'); } catch (e) { showError(form, e.message); } };
+  form.addEventListener('submit', (e) => {
+    e.preventDefault();
+    const v = (id) => form.querySelector('#' + id).value;
+    save({ theme_color: v('color'), accent_color: v('accent'), rule_color: form.querySelector('#no-rule').checked ? '' : v('rule') }, form.querySelector('button[type=submit]'), 'Colors saved.');
+  });
+  form.querySelector('#reset-color').addEventListener('click', (e) => save({ theme_color: '', accent_color: '', rule_color: '' }, e.target, 'Back to the standard colors.'));
   const file = h('input', { id: 'logo', type: 'file', accept: 'image/png,image/jpeg' });
   const logoForm = h('form', { novalidate: true, class: 'card' }, h('h2', {}, 'City logo'),
     h('p', { class: 'hint' }, 'A PNG or JPEG picture under 300 KB. It shows in the top bar of every page.'),

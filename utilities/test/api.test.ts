@@ -370,9 +370,11 @@ describe('colors, logo and update source', () => {
   it('accepts a dark color, refuses a light one, and serves it as CSS to everyone', async () => {
     expect((await call('siteadmin', 'PUT', '/api/staff/settings', { theme_color: '#ffff00' })).status).toBe(400);
     expect((await call('siteadmin', 'PUT', '/api/staff/settings', { theme_color: 'red' })).status).toBe(400);
-    expect((await call('siteadmin', 'PUT', '/api/staff/settings', { theme_color: '#7a1f2b' })).status).toBe(200);
+    expect((await call('siteadmin', 'PUT', '/api/staff/settings', { accent_color: '#ffff00' })).status).toBe(400);
+    expect((await call('siteadmin', 'PUT', '/api/staff/settings', { rule_color: 'gold' })).status).toBe(400);
+    expect((await call('siteadmin', 'PUT', '/api/staff/settings', { theme_color: '#7a1f2b', accent_color: '#8f2f1f', rule_color: '#d9a33a' })).status).toBe(200);
     const css = await req(S.host, 'GET', '/theme.css');
-    expect(css.text).toContain('--primary: #7a1f2b');
+    expect(css.text).toContain('--primary: #7a1f2b'); expect(css.text).toContain('--accent: #8f2f1f'); expect(css.text).toContain('--rule: #d9a33a'); expect(css.text).toContain('--header: #7a1f2b');
     expect((await req(T.host, 'GET', '/theme.css')).text).toBe('');
   });
   it('only a settings manager can change the color, and a clerk cannot', async () => {

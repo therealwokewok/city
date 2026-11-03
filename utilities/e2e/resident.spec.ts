@@ -10,7 +10,7 @@ test('sign-in page works, is accessible and fits the screen', async ({ page }, i
   await page.goto('/');
   await expect(page).toHaveTitle(/Sign in - City of Example/);
   await expect(page.getByText('There is no password to remember')).toBeVisible();
-  await expect(page.locator('#demo')).toContainText('Demo. This is not the official City of Example utility system');
+  await expect(page.locator('#demo')).toContainText('Demo site. This is not the official City of Example utility system');
   await noSidewaysScroll(page);
   await bigEnoughTargets(page);
   expect((await axe(page)).violations).toEqual([]);
