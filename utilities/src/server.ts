@@ -23,7 +23,7 @@ import { approveRun, balance, billsWithStatus, calculateRun, createCharge, creat
 import { cancelArrangement, currentArrangement, isoDate as dateText, decideArrangement, requestArrangement } from './domain/arrangements.js';
 import { previewCorrection, requestCorrection } from './domain/corrections.js';
 import { attachProviderRef, createPendingPayment, recordCounterPayment, settleFromEvent } from './domain/payments.js';
-import { BillData, EnvelopeData, renderBills, renderEnvelopes, renderTestPage, validateProfile } from './printing.js';
+import { BillData, EnvelopeData, longDate, longPeriod, mailingLines, renderBills, renderEnvelopes, renderTestPage, validateProfile } from './printing.js';
 import { assertMoneyAllowed, loadSettings, MONEY_SETTINGS, themeCss, validateSettings } from './settings.js';
 import { fmt as fmtCents } from './money.js';
 import { feeFor, feeNotice, methodLabel } from './fees.js';
@@ -1040,7 +1040,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
       const data: BillData[] = rows.filter((r) => include_paperless === '1' || !r.paperless).map((r) => ({
         city: { name: city.name, return_address: s.return_address, remit_to: s.remit_to, office_hours: s.office_hours },
         account: { name: r.name, number: r.account_number, service_address: r.service_address, mailing_address: r.mailing_address },
-        period: `${run.period_start} to ${run.period_end}`, due: run.due_date, total_cents: r.total_cents, lines: r.lines,
+        period: longPeriod(run.period_start, run.period_end), due: longDate(run.due_date), total_cents: r.total_cents, lines: r.lines,
       }));
       await audit(c, me(req), 'print.bills', { run_id: id, count: data.length });
       return renderBills(profile, data);
@@ -1055,7 +1055,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
       const { profile } = await loadProfile(c, pid, 'envelope');
       const { s, city, rows } = await runPrintData(c, id);
       const data: EnvelopeData[] = rows.filter((r) => include_paperless === '1' || !r.paperless).map((r) => ({
-        recipient: [r.name, ...(r.mailing_address ?? r.service_address).split('\n')], return_address: s.return_address, city_name: city.name,
+        recipient: [r.name, ...mailingLines(r.mailing_address, r.service_address, s.return_address)], return_address: s.return_address, city_name: city.name,
       }));
       await audit(c, me(req), 'print.envelopes', { run_id: id, count: data.length });
       return renderEnvelopes(profile, data);

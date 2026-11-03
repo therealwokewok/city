@@ -435,3 +435,16 @@ describe('printing a long bill', () => {
     expect(moreText(1)).toBe('...and 1 more charge, included in the total');
   });
 });
+
+describe('mailing addresses and dates on paper', () => {
+  it('adds the town line when there is no separate mailing address, and writes dates out', async () => {
+    const { mailingLines, longDate, longPeriod } = await import('../src/printing.js');
+    const ret = 'City of Osceola\n210 Olive St\nOsceola, MO 64776';
+    expect(mailingLines(null, '200 Oak St', ret)).toEqual(['200 Oak St', 'Osceola, MO 64776']);
+    expect(mailingLines('PO Box 9\nClinton, MO 64735', '200 Oak St', ret)).toEqual(['PO Box 9', 'Clinton, MO 64735']);
+    expect(mailingLines(null, '200 Oak St\nOsceola, MO 64776', ret)).toEqual(['200 Oak St', 'Osceola, MO 64776']);
+    expect(mailingLines(null, '200 Oak St', 'City Hall')).toEqual(['200 Oak St']); // no town line to borrow
+    expect(longDate('2026-11-18')).toBe('November 18, 2026');
+    expect(longPeriod('2026-10-04', '2026-11-03')).toBe('October 4, 2026 to November 3, 2026');
+  });
+});

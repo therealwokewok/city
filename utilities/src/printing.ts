@@ -24,6 +24,25 @@ export const ENVELOPE_SOURCES = ['static', 'city.name', 'return_address', 'recip
 
 const PT: Record<Units, number> = { in: 72, mm: 72 / 25.4, pt: 1 };
 
+/** "2026-11-18" as "November 18, 2026": easier to read on paper. */
+export function longDate(iso: string | Date): string {
+  const d = typeof iso === 'string' ? new Date(iso.slice(0, 10) + 'T12:00:00Z') : iso;
+  return d.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric', timeZone: 'UTC' });
+}
+export const longPeriod = (start: string | Date, end: string | Date) => `${longDate(start)} to ${longDate(end)}`;
+
+/**
+ * The address to mail to. Without a separate mailing address, the service address gets the town line
+ * ("Osceola, MO 64776") taken from the last line of the city's return address, so the Post Office can deliver it.
+ */
+export function mailingLines(mailing: string | null, service: string, returnAddress: string): string[] {
+  if (mailing && mailing.trim()) return mailing.split('\n').map((x) => x.trim()).filter(Boolean);
+  const lines = service.split('\n').map((x) => x.trim()).filter(Boolean);
+  const town = returnAddress.split('\n').map((x) => x.trim()).filter(Boolean).pop() ?? '';
+  const looksLikeTown = /,\s*[A-Za-z]{2}\s+\d{5}(-\d{4})?$/.test(town);
+  return looksLikeTown && !/\d{5}(-\d{4})?$/.test(lines[lines.length - 1] ?? '') ? [...lines, town] : lines;
+}
+
 /** How many charge lines to print in `rows` rows; when they do not all fit, the last row says how many more. */
 export function linesThatFit(count: number, rows: number): { show: number; more: number } {
   if (rows <= 0) return { show: 0, more: count };
@@ -61,7 +80,7 @@ export interface BillData {
   city: { name: string; return_address: string; remit_to: string; office_hours: string };
   account: { name: string; number: string; service_address: string; mailing_address: string | null };
   period: string; due: string; total_cents: number;
-  lines: { code: string; description: string; amount_cents: number; meter?: string }[];
+  lines: { code: string; description: string; amount_cents: number; meter?: string; units?: number; unit?: string }[];
 }
 
 function render(build: (doc: PDFKit.PDFDocument) => void): Promise<Buffer> {
@@ -113,7 +132,7 @@ export function renderBills(profile: PrintProfile, bills: BillData[]): Promise<B
           case 'account.name': put(doc, k, f, (f.label ?? '') + (b.account.name), profile.page.width); break;
           case 'account.number': put(doc, k, f, (f.label ?? '') + b.account.number, profile.page.width); break;
           case 'account.service_address': put(doc, k, f, (f.label ?? '') + (b.account.service_address), profile.page.width); break;
-          case 'account.mailing_address': put(doc, k, f, (f.label ?? '') + (b.account.mailing_address ?? b.account.service_address), profile.page.width); break;
+          case 'account.mailing_address': put(doc, k, f, (f.label ?? '') + mailingLines(b.account.mailing_address, b.account.service_address, b.city.return_address).join('\n'), profile.page.width); break;
           case 'bill.period': put(doc, k, f, (f.label ?? '') + b.period, profile.page.width); break;
           case 'bill.due': put(doc, k, f, (f.label ?? '') + b.due, profile.page.width); break;
           case 'bill.total': put(doc, k, f, (f.label ?? '') + fmt(b.total_cents), profile.page.width); break;
@@ -127,7 +146,8 @@ export function renderBills(profile: PrintProfile, bills: BillData[]): Promise<B
             for (const l of b.lines.slice(0, fit.show)) {
               doc.font('Helvetica').fontSize(size).fillColor('#000');
               doc.text(l.code, f.x * k, y * k, { width: width * 0.15 * k, lineBreak: false });
-              doc.text(l.description + (l.meter ? ` (${l.meter})` : ''), (f.x + width * 0.17) * k, y * k, { width: width * 0.55 * k, lineBreak: false });
+              const used = l.units != null ? `, ${Number(l.units).toLocaleString('en-US')}${l.unit ? ' ' + l.unit : ''} used` : '';
+              doc.text(l.description + (l.meter ? ` (${l.meter})` : '') + used, (f.x + width * 0.17) * k, y * k, { width: width * 0.55 * k, lineBreak: false });
               doc.text(fmt(l.amount_cents), (f.x + width * 0.72) * k, y * k, { width: width * 0.28 * k, align: 'right', lineBreak: false });
               y += rowH;
             }
