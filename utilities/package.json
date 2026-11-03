@@ -11,7 +11,8 @@
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "bootstrap": "tsx scripts/bootstrap.ts",
-    "autopay": "tsx src/autopayCli.ts"
+    "autopay": "tsx src/autopayCli.ts",
+    "test-users": "tsx scripts/test-users.ts"
   },
   "keywords": [],
   "author": "Cory Cline",
