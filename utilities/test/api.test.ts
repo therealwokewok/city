@@ -279,6 +279,11 @@ describe('roles, settings and the audit trail', () => {
     expect((await call('admin', 'POST', `/api/staff/users/${target}/roles`, { role: 'cashier', action: 'grant' })).json.error).toBe('stepup_required');
     await stepup('admin');
     expect((await call('admin', 'POST', `/api/staff/users/${target}/roles`, { role: 'cashier', action: 'grant' })).status).toBe(200);
+    // every other administrator hears about it, the one who did it does not need to
+    const told = mail.sent.filter((m) => m.subject === 'A staff role was changed');
+    expect(told.map((m) => m.to)).toContain(S.users.siteadmin.email);
+    expect(told.map((m) => m.to)).not.toContain(S.users.admin.email);
+    expect(told.at(-1)!.text).toMatch(/gave the cashier role to/);
     expect((await call('admin', 'POST', `/api/staff/users/${S.users.admin.id}/roles`, { role: 'approver', action: 'grant' })).status).toBe(403);
     expect((await call('admin', 'POST', `/api/staff/users/${target}/roles`, { role: 'site_admin', action: 'grant' })).status).toBe(403);
     await stepup('siteadmin');

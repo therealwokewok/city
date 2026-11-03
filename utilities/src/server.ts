@@ -15,7 +15,7 @@ import { createWorkOrder, finishWorkOrder } from './domain/workorders.js';
 import { EmailAdapter } from './adapters/email.js';
 import { PaymentsAdapter } from './adapters/payments.js';
 import { checkCode, createSession, loadSession, markStepUp, requestCode, requireStepUp, Session } from './auth.js';
-import { canGrant, ROLES } from './permissions.js';
+import { canGrant, permsFor, ROLES } from './permissions.js';
 import { bad, createAccount, createRate, createStaffUser, deactivateUser, forbid, grantRole, HttpError, linkAccount, notFound,
   createServiceRequest, setMeterActive, REQUEST_KINDS, updateServiceRequest, openDispute, regenLinkCode, resolveDispute, revokeRole, setAccountService, setServiceEnabled, addMeter } from './domain/accounts.js';
 import { approveRun, balance, billsWithStatus, calculateRun, createCharge, createRun, decideApproval, requestApproval, reviewReading, runPenalties,
@@ -24,7 +24,7 @@ import { cancelArrangement, currentArrangement, isoDate as dateText, decideArran
 import { previewCorrection, requestCorrection } from './domain/corrections.js';
 import { attachProviderRef, createPendingPayment, recordCounterPayment, settleFromEvent } from './domain/payments.js';
 import { BillData, EnvelopeData, renderBills, renderEnvelopes, renderTestPage, validateProfile } from './printing.js';
-import { assertMoneyAllowed, loadSettings, themeCss, validateSettings } from './settings.js';
+import { assertMoneyAllowed, loadSettings, MONEY_SETTINGS, themeCss, validateSettings } from './settings.js';
 import { fmt as fmtCents } from './money.js';
 import { feeFor, feeNotice, methodLabel } from './fees.js';
 
@@ -134,6 +134,9 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   const baseCtx = (req: FastifyRequest): Ctx => ({ cityId: req.cityId, userId: null, perms: [] });
   const ctxOf = (req: FastifyRequest): Ctx => {
     if (!req.auth) throw new HttpError(401, 'Please sign in');
+    // Resident pages act with resident rights only, even for someone who is also on staff. Row security then shows
+    // just the accounts linked to this person, so a clerk who pays their own bill cannot act on a neighbor's account.
+    if (req.url.startsWith('/api/resident/')) return { cityId: req.cityId, userId: req.auth.userId, perms: permsFor(['resident']) };
     return { cityId: req.cityId, userId: req.auth.userId, perms: req.auth.perms };
   };
   const me = (req: FastifyRequest) => ctxOf(req).userId!;
@@ -868,6 +871,9 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
     need(req, 'settings.manage'); requireStepUp(req.auth!);
     let patch;
     try { patch = validateSettings(parse(z.record(z.string(), z.unknown()), req.body)); } catch (e: any) { throw bad(e.message); }
+    if (Object.keys(patch).some((k) => MONEY_SETTINGS.includes(k)) && !req.auth!.perms.includes('settings.money')) {
+      throw forbid('Only a city administrator can change charges, due dates, fees and approval limits');
+    }
     return tx(ctxOf(req), async (c) => {
       await c.query(`update cities set settings = settings || $1::jsonb where id = app_city()`, [JSON.stringify(patch)]);
       await audit(c, me(req), 'settings.update', { keys: Object.keys(patch) });
@@ -896,6 +902,17 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
     const { id } = parse(z.object({ id: uuid }), req.params);
     const b = parse(z.object({ role: z.string().max(30), action: z.enum(['grant', 'revoke']) }), req.body);
     await tx(ctxOf(req), (c) => (b.action === 'grant' ? grantRole : revokeRole)(c, me(req), req.auth!.roles, id, b.role));
+    // Tell every other administrator, so nobody can quietly give a second login of their own extra power.
+    const sys: Ctx = { cityId: req.cityId, userId: null, perms: ['users.read'] };
+    const info = await tx(sys, async (c) => ({
+      who: (await c.query('select name, email from users where id = $1', [me(req)])).rows[0],
+      whom: (await c.query('select name, email from users where id = $1', [id])).rows[0],
+      admins: (await c.query(`select distinct u.email from users u join user_roles r on r.user_id = u.id
+        where r.role in ('city_admin', 'site_admin') and u.active and u.id <> $1`, [me(req)])).rows.map((r) => r.email as string),
+    }));
+    const city = await cityInfo(req);
+    const text = `${info.who?.name ?? 'Someone'} (${info.who?.email ?? ''}) ${b.action === 'grant' ? 'gave' : 'took away'} the ${b.role.replace(/_/g, ' ')} role ${b.action === 'grant' ? 'to' : 'from'} ${info.whom?.name ?? ''} (${info.whom?.email ?? ''}) in ${city.name} utilities.\n\nIf you did not expect this, check the activity log.`;
+    for (const to of info.admins) { try { await deps.email.send(to, 'A staff role was changed', text); } catch { /* the activity log has it too */ } }
     return { ok: true };
   });
   app.post('/api/staff/users/:id/deactivate', async (req) => {
@@ -1086,6 +1103,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   app.post('/api/staff/arrangements/:id/decide', async (req) => {
     need(req, 'arrangements.decide');
     const { id } = parse(z.object({ id: uuid }), req.params);
+    if ((req.body as any)?.decision === 'approve') requireStepUp(req.auth!); // like every other approval
     const b = parse(z.object({ decision: z.enum(['approve', 'decline']), note: z.string().max(1000).optional(),
       installments: z.number().int().min(2).max(24).optional(), first_due: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional() }), req.body);
     const r = await tx(ctxOf(req), (c) => decideArrangement(c, me(req), id, b));

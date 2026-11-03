@@ -51,6 +51,7 @@ test('approver approves the plan, and the resident sees it with the amount ready
   await expect(item).toContainText('Car repairs this month');
   await item.getByLabel('Payments').selectOption('4');
   await item.getByRole('button', { name: 'Approve' }).click();
+  await safetyCheck(page, 'approver@example.test'); // approving a plan needs the emailed code, like other approvals
   await expect(page.getByRole('listitem').filter({ hasText: `account ${a.num}` })).toHaveCount(0);
   expect((await axe(page)).violations).toEqual([]);
 

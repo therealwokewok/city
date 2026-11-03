@@ -28,6 +28,10 @@ export interface CitySettings {
   ach_fee_max_cents: number;      // 500 = $5.00; 0 = no cap
 }
 
+/** Settings that change what customers are charged or how money is approved. Only a city administrator may change them. */
+export const MONEY_SETTINGS = ['penalty_bps', 'due_days', 'shutoff_notice_days', 'approval_limit_cents', 'tax_bps',
+  'card_fee', 'card_fee_bps', 'card_fee_fixed_cents', 'card_fee_max_bps', 'ach_fee', 'ach_fee_bps', 'ach_fee_max_cents'];
+
 export const DEFAULT_UPDATE_REPO = 'https://github.com/therealwokewok/city';
 
 /** WCAG contrast ratio of a #RRGGBB color against white. */
@@ -93,6 +97,7 @@ export function validateSettings(input: Record<string, unknown>): Partial<CitySe
       out[k] = v.trim();
     } else throw new Error(`unknown setting ${k}`);
   }
+  if (out.stepup_minutes !== undefined && ((out.stepup_minutes as number) < 1 || (out.stepup_minutes as number) > 30)) throw new Error('A safety check can last from 1 to 30 minutes');
   for (const k of ['card_fee_bps', 'ach_fee_bps', 'card_fee_max_bps']) if (typeof out[k] === 'number' && (out[k] as number) > 2000) throw new Error('A fee percentage cannot be more than 20%');
   return out as Partial<CitySettings>;
 }

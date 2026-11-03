@@ -196,6 +196,11 @@ export async function approveRun(c: pg.PoolClient, actor: string, runId: string)
 // ---------- late charges and shutoff list ----------
 export async function runPenalties(c: pg.PoolClient, actor: string, asOf: string) {
   await requirePerm(c, 'runs.manage');
+  // Late charges only for bills that are really late: never for a date that has not come yet.
+  // (The test suite sets TEST_TODAY so it can bill months ahead; it is ignored outside tests.)
+  const today = process.env.NODE_ENV === 'test' && process.env.TEST_TODAY ? process.env.TEST_TODAY
+    : (await c.query(`select (now() at time zone timezone)::date::text as d from cities where id = app_city()`)).rows[0].d as string;
+  if (asOf > today) throw bad('Late charges can only be added as of today or an earlier date');
   const s = await loadSettings(c);
   await elevate(c, 'ledger.post');
   const due = (await c.query(

@@ -13,6 +13,11 @@ async function read(meter: string, value: number, at: string, id: string) {
   await tx(S.ctx('clerk2'), (c) => reviewReading(c, S.users.clerk2.id, r.id, 'accept'));
   return r.id;
 }
+// A plan's first payment must be within 3 months of today, so these dates follow the real calendar.
+const realToday = new Date().toISOString().slice(0, 10);
+const firstDue = addMonths(realToday, 2);
+const shift = (iso: string, days: number) => new Date(Date.parse(iso + 'T12:00:00Z') + days * 864e5).toISOString().slice(0, 10);
+const before = shift(firstDue, -5), after = shift(firstDue, 5);
 const bal = async (a: string) => Number((await owner.query('select coalesce(sum(amount_cents),0) as b from ledger_entries where account_id = $1', [a])).rows[0].b);
 
 beforeAll(async () => {
@@ -90,6 +95,9 @@ describe('payment plans', () => {
       { due: '2027-01-31', amount_cents: 3333 }, { due: '2027-02-28', amount_cents: 3333 }, { due: '2027-03-31', amount_cents: 3335 }]);
     expect(addMonths('2027-12-15', 1)).toBe('2028-01-15');
   });
+  it('the first payment must be soon, so a plan cannot shield an account for years', async () => {
+    await expect(tx(S.ctx('clerk'), (c) => requestArrangement(c, S.users.clerk.id, { account_id: S.accounts.a1, installments: 2, reason: 'x', by_staff: true, first_due: addMonths(realToday, 5) }))).rejects.toThrow(/3 months/);
+  });
   it('a resident asks, a different person at the city decides', async () => {
     const r = await tx(S.ctx('res1'), (c) => requestArrangement(c, S.users.res1.id, { account_id: S.accounts.a1, installments: 3, reason: 'Lost my job', by_staff: false }));
     ids.plan = r.id;
@@ -97,25 +105,26 @@ describe('payment plans', () => {
     await expect(tx(S.ctx('res2'), (c) => requestArrangement(c, S.users.res2.id, { account_id: S.accounts.a1, installments: 2, reason: 'not mine', by_staff: false }))).rejects.toThrow();
     await expect(tx(S.ctx('cs'), (c) => decideArrangement(c, S.users.cs.id, r.id, { decision: 'approve' }))).rejects.toThrow();
     await expect(tx(S.ctx('approver'), (c) => decideArrangement(c, S.users.approver.id, r.id, { decision: 'decline' }))).rejects.toThrow(/reason/);
-    const d = await tx(S.ctx('approver'), (c) => decideArrangement(c, S.users.approver.id, r.id, { decision: 'approve', installments: 4, first_due: '2027-01-15' }));
+    const d = await tx(S.ctx('approver'), (c) => decideArrangement(c, S.users.approver.id, r.id, { decision: 'approve', installments: 4, first_due: firstDue }));
+    await expect(tx(S.ctx('approver2'), (c) => decideArrangement(c, S.users.approver2.id, r.id, { decision: 'approve' }))).rejects.toThrow(/already decided/);
     expect(d.schedule).toHaveLength(4);
     await expect(tx(S.ctx('res1'), (c) => cancelArrangement(c, S.users.res1.id, r.id, false))).rejects.toThrow(/call the city/);
   });
   it('while kept up, no late charge on the covered bill and no shutoff; once behind, both apply again', async () => {
     expect((await tx(S.ctx('clerk'), (c) => runPenalties(c, S.users.clerk.id, '2026-12-01'))).on_payment_plan).toBe(1);
     const off = (asOf: string) => tx(S.ctx('clerk'), (c) => shutoffList(c, asOf)).then((l) => l.map((x) => x.account_number));
-    expect(await off('2026-12-31')).not.toContain('1001');
-    const plan = await tx(S.ctx('res1'), (c) => currentArrangement(c, S.accounts.a1, '2026-12-31'));
+    expect(await off(before)).not.toContain('1001');
+    const plan = await tx(S.ctx('res1'), (c) => currentArrangement(c, S.accounts.a1, before));
     expect(plan!.state).toBe('on_track');
-    expect(await off('2027-01-20')).toContain('1001'); // first payment missed
-    const late = await tx(S.ctx('res1'), (c) => currentArrangement(c, S.accounts.a1, '2027-01-20'));
+    expect(await off(after)).toContain('1001'); // first payment missed
+    const late = await tx(S.ctx('res1'), (c) => currentArrangement(c, S.accounts.a1, after));
     expect(late!.state).toBe('behind');
     await tx(S.ctx('cashier'), (c) => recordCounterPayment(c, S.users.cashier.id, { account_id: S.accounts.a1, amount_cents: late!.next!.amount_cents, method: 'check' }));
-    expect(await off('2027-01-20')).not.toContain('1001');
+    expect(await off(after)).not.toContain('1001');
   });
   it('staff can set one up for a caller, but cannot approve their own', async () => {
     await tx(S.ctx('clerkapprover'), (c) => cancelArrangement(c, S.users.clerkapprover.id, ids.plan, true));
-    const r = await tx(S.ctx('clerkapprover'), (c) => requestArrangement(c, S.users.clerkapprover.id, { account_id: S.accounts.a1, installments: 2, reason: 'Called in', by_staff: true, first_due: '2027-02-01' }));
+    const r = await tx(S.ctx('clerkapprover'), (c) => requestArrangement(c, S.users.clerkapprover.id, { account_id: S.accounts.a1, installments: 2, reason: 'Called in', by_staff: true, first_due: firstDue }));
     await expect(tx(S.ctx('clerkapprover'), (c) => decideArrangement(c, S.users.clerkapprover.id, r.id, { decision: 'approve' }))).rejects.toThrow(/asked for/);
     await tx(S.ctx('approver2'), (c) => decideArrangement(c, S.users.approver2.id, r.id, { decision: 'decline', note: 'Please pay the first half now' }));
   });

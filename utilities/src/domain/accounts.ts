@@ -62,6 +62,7 @@ export async function regenLinkCode(c: pg.PoolClient, actor: string, accountId: 
 export async function addMeter(c: pg.PoolClient, actor: string, m: {
   account_id: string; service_code: string; serial: string; location?: string; multiplier?: number;
 }) {
+  if (!(await c.query('select 1 from accounts where id = $1', [m.account_id])).rows[0]) throw notFound('Account not found');
   const r = await c.query(
     `insert into meters (city_id, account_id, service_code, serial, location, multiplier)
      values (app_city(), $1, $2, $3, $4, $5) returning id`,
@@ -97,6 +98,7 @@ export async function setServiceEnabled(c: pg.PoolClient, actor: string, code: s
 
 export async function setAccountService(c: pg.PoolClient, actor: string, accountId: string, code: string, enabled: boolean, quantity = 1) {
   if (!Number.isInteger(quantity) || quantity < 1 || quantity > 99) throw bad('How many must be a whole number from 1 to 99');
+  if (!(await c.query('select 1 from accounts where id = $1', [accountId])).rows[0]) throw notFound('Account not found');
   await c.query(
     `insert into account_services (account_id, city_id, service_code, enabled, quantity) values ($1, app_city(), $2, $3, $4)
      on conflict (account_id, service_code) do update set enabled = excluded.enabled, quantity = excluded.quantity`,
@@ -118,6 +120,10 @@ export async function createRate(c: pg.PoolClient, actor: string, serviceCode: s
 }
 
 // ---------- users and roles ----------
+/** Row security only shows users of this city, so this also refuses another city's user. */
+async function assertUserHere(c: pg.PoolClient, userId: string) {
+  if (!(await c.query('select 1 from users where id = $1', [userId])).rows[0]) throw notFound('No such person');
+}
 export async function createStaffUser(c: pg.PoolClient, actor: string, email: string, name: string) {
   if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) throw bad('Enter a valid email address');
   const r = await c.query(
@@ -132,6 +138,13 @@ export async function createStaffUser(c: pg.PoolClient, actor: string, email: st
 export async function grantRole(c: pg.PoolClient, actor: string, actorRoles: string[], userId: string, role: string) {
   if (userId === actor) throw forbid('You cannot change your own roles');
   if (!canGrant(actorRoles, role)) throw forbid('You cannot grant that role');
+  await assertUserHere(c, userId);
+  // A site administrator may name the first city administrator, but after that only a city administrator adds another.
+  // Otherwise a site administrator (no access to money or customers) could make an identity that has both.
+  if (role === 'city_admin' && !actorRoles.includes('city_admin')) {
+    const has = (await c.query(`select 1 from user_roles r join users u on u.id = r.user_id where r.role = 'city_admin' and u.active limit 1`)).rows[0];
+    if (has) throw forbid('This city already has a city administrator. Ask them to add another one.');
+  }
   await c.query(
     `insert into user_roles (user_id, city_id, role, granted_by) values ($1, app_city(), $2, $3) on conflict do nothing`,
     [userId, role, actor],
@@ -142,12 +155,14 @@ export async function grantRole(c: pg.PoolClient, actor: string, actorRoles: str
 export async function revokeRole(c: pg.PoolClient, actor: string, actorRoles: string[], userId: string, role: string) {
   if (userId === actor) throw forbid('You cannot change your own roles');
   if (!canGrant(actorRoles, role)) throw forbid('You cannot revoke that role');
+  await assertUserHere(c, userId);
   await c.query('delete from user_roles where user_id = $1 and role = $2', [userId, role]);
   await audit(c, actor, 'role.revoke', { user_id: userId, role });
 }
 
 export async function deactivateUser(c: pg.PoolClient, actor: string, userId: string) {
   if (userId === actor) throw forbid('You cannot deactivate yourself');
+  await assertUserHere(c, userId);
   await c.query('update users set active = false where id = $1', [userId]);
   await c.query('update sessions set revoked = true where user_id = $1', [userId]);
   await audit(c, actor, 'user.deactivate', { user_id: userId });

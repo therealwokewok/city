@@ -47,6 +47,11 @@ export async function planProgress(c: pg.PoolClient, a: { account_id: string; to
 }
 
 const today = () => new Date().toISOString().slice(0, 10);
+/** The first payment must start soon, so a plan cannot shield an account from late charges and shutoff for years. */
+function checkFirstDue(d: string) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) throw bad('Enter the first payment date');
+  if (d < addMonths(today(), 0) || d > addMonths(today(), 3)) throw bad('The first payment must be due within the next 3 months');
+}
 
 export async function requestArrangement(c: pg.PoolClient, actor: string, r: {
   account_id: string; installments: number; reason: string; first_due?: string; by_staff: boolean;
@@ -59,7 +64,7 @@ export async function requestArrangement(c: pg.PoolClient, actor: string, r: {
   const owed = Number(await balance(c, r.account_id));
   if (owed < 100 * r.installments) throw bad(owed <= 0 ? 'Nothing is owed on this account right now.' : 'The amount owed is too small to split into that many payments.');
   const firstDue = r.first_due ?? addMonths(today(), 1);
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(firstDue) || firstDue < today()) throw bad('The first payment date must be today or later');
+  checkFirstDue(firstDue);
   try {
     const row = (await c.query(
       `insert into payment_arrangements (city_id, account_id, requested_by, by_staff, reason, total_cents, installments, first_due)
@@ -91,7 +96,7 @@ export async function decideArrangement(c: pg.PoolClient, actor: string, id: str
   const n = d.installments ?? a.installments;
   if (!Number.isInteger(n) || n < 2 || n > 24) throw bad('Choose between 2 and 24 monthly payments');
   const firstDue = d.first_due ?? isoDate(a.first_due);
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(firstDue)) throw bad('Enter the first payment date');
+  if (d.first_due !== undefined) checkFirstDue(firstDue);
   await c.query(
     `update payment_arrangements set status = 'approved', decided_by = $2, decided_at = now(), decision_note = $3, installments = $4, first_due = $5 where id = $1`,
     [id, actor, note, n, firstDue]);

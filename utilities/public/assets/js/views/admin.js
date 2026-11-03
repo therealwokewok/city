@@ -62,19 +62,23 @@ function feeFields(s) {
 
 export const settings = safe(async () => {
   const s = await api('GET', '/api/staff/settings');
+  // Charges, due dates, fees and approval limits are for the city administrator only.
+  const money = has('city_admin');
+  const lock = (el) => { if (!money) el.querySelectorAll('input, textarea, select').forEach((i) => { i.disabled = true; }); return el; };
   const form = h('form', { novalidate: true, class: 'card' },
     field({ id: 'phone', label: 'City Hall phone number', value: s.phone, autocomplete: 'off', inputmode: 'tel' }),
     field({ id: 'office_hours', label: 'Office hours', hint: 'Shown at the bottom of every page', value: s.office_hours }),
     field({ id: 'return_address', label: 'City return address', hint: 'Printed on bills and envelopes', tag: 'textarea', value: s.return_address, maxlength: 500 }),
     field({ id: 'remit_to', label: 'Where to mail payments', hint: 'Printed on bills', tag: 'textarea', value: s.remit_to, maxlength: 500 }),
-    field({ id: 'due_days', label: 'Days until a bill is due', hint: 'Counted from the day the bill is made', inputmode: 'numeric', value: s.due_days }),
-    field({ id: 'penalty', label: 'Late charge (percent)', hint: 'For example 10 for ten percent. Use 0 for none.', inputmode: 'decimal', value: s.penalty_bps / 100 }),
-    field({ id: 'shutoff', label: 'Days after the due date before a shutoff can be listed', inputmode: 'numeric', value: s.shutoff_notice_days }),
-    field({ id: 'limit', label: 'Extra approval above this amount (dollars)', hint: 'Above this, one-time charges need an approver, and bill changes need two different approvers', inputmode: 'decimal', value: s.approval_limit_cents / 100 }),
-    field({ id: 'tax', label: 'Sales tax (percent)', hint: 'Use 0 if the city does not charge tax on utilities', inputmode: 'decimal', value: s.tax_bps / 100 }),
+    lock(field({ id: 'due_days', label: 'Days until a bill is due', hint: 'Counted from the day the bill is made', inputmode: 'numeric', value: s.due_days })),
+    lock(field({ id: 'penalty', label: 'Late charge (percent)', hint: 'For example 10 for ten percent. Use 0 for none.', inputmode: 'decimal', value: s.penalty_bps / 100 })),
+    lock(field({ id: 'shutoff', label: 'Days after the due date before a shutoff can be listed', inputmode: 'numeric', value: s.shutoff_notice_days })),
+    lock(field({ id: 'limit', label: 'Extra approval above this amount (dollars)', hint: 'Above this, one-time charges need an approver, and bill changes need two different approvers', inputmode: 'decimal', value: s.approval_limit_cents / 100 })),
+    lock(field({ id: 'tax', label: 'Sales tax (percent)', hint: 'Use 0 if the city does not charge tax on utilities', inputmode: 'decimal', value: s.tax_bps / 100 })),
     field({ id: 'factor', label: 'Flag a meter reading that uses this many times the last use', hint: 'For example 3 catches a reading that is three times higher than last time', inputmode: 'decimal', value: s.high_usage_factor }),
-    field({ id: 'stepup', label: 'Minutes a safety check stays good', hint: 'Staff retype an emailed code before risky actions. This is how long it lasts.', inputmode: 'numeric', value: s.stepup_minutes }),
-    feeFields(s),
+    field({ id: 'stepup', label: 'Minutes a safety check stays good', hint: 'Staff retype an emailed code before risky actions. This is how long it lasts, from 1 to 30 minutes.', inputmode: 'numeric', value: s.stepup_minutes }),
+    lock(feeFields(s)),
+    money ? null : h('p', { class: 'notice warn' }, 'Late charges, due dates, fees and approval limits can only be changed by a city administrator.'),
     h('div', { class: 'actions' }, h('button', { class: 'btn', type: 'submit' }, 'Save settings')));
   const msg = h('div');
   form.addEventListener('submit', async (e) => {
@@ -84,13 +88,15 @@ export const settings = safe(async () => {
     try {
       const body = {
         phone: v('phone').trim(), office_hours: v('office_hours').trim(), return_address: v('return_address').trim(), remit_to: v('remit_to').trim(),
+        high_usage_factor: need('factor', 'High use flag', { min: 1, max: 1000 }),
+        stepup_minutes: Math.round(need('stepup', 'Safety check minutes', { min: 1, max: 30 })),
+      };
+      if (money) Object.assign(body, {
         due_days: Math.round(need('due_days', 'Days until a bill is due', { min: 1, max: 365 })),
         penalty_bps: Math.round(need('penalty', 'Late charge', { max: 100 }) * 100),
         shutoff_notice_days: Math.round(need('shutoff', 'Days before a shutoff', { max: 365 })),
         approval_limit_cents: Math.round(need('limit', 'Bill change limit') * 100),
         tax_bps: Math.round(need('tax', 'Sales tax', { max: 100 }) * 100),
-        high_usage_factor: need('factor', 'High use flag', { min: 1, max: 1000 }),
-        stepup_minutes: Math.round(need('stepup', 'Safety check minutes', { min: 1, max: 120 })),
         card_fee: form.querySelector('input[name=card_fee]:checked')?.value || 'off',
         card_fee_bps: Math.round(need('cfp', 'Card fee percent', { max: 20 }) * 100),
         card_fee_fixed_cents: Math.round(need('cff', 'Card fee cents', { max: 500 })),
@@ -98,7 +104,7 @@ export const settings = safe(async () => {
         ach_fee: form.querySelector('#achon').checked,
         ach_fee_bps: Math.round(need('afp', 'Bank fee percent', { max: 20 }) * 100),
         ach_fee_max_cents: Math.round(need('afm', 'Bank fee limit') * 100),
-      };
+      });
       await busy(form.querySelector('button[type=submit]'), 'Saving...', () => api('PUT', '/api/staff/settings', body));
       form.querySelector('.error')?.remove();
       say(msg, 'Settings saved.');

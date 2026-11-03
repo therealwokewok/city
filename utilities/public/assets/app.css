@@ -98,6 +98,7 @@ main.wide { max-width: var(--maxw-wide); }
 .loading { color: var(--muted); }
 
 /* buttons */
+[hidden] { display: none !important; } /* a class like .btn must never show something marked hidden */
 .btn, button.btn {
   display: inline-flex; align-items: center; justify-content: center; gap: .5rem; width: 100%;
   min-height: var(--tap); padding: .5rem 1.5rem; border-radius: var(--radius); border: 3px solid var(--accent);
