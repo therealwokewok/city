@@ -115,7 +115,7 @@ describe('late charges and shutoff', () => {
   it('charges 10% rounded up, skips accounts that paid, and never charges twice', async () => {
     await tx(S.ctx('cashier'), (c) => recordCounterPayment(c, S.users.cashier.id, { account_id: S.accounts.a1, amount_cents: 14450, method: 'cash' }));
     const r = await tx(S.ctx('clerk'), (c) => runPenalties(c, S.users.clerk.id, '2026-11-16'));
-    expect(r).toEqual({ charged: 1, total_cents: 474 }); // 4733 * 10% = 473.3 -> 474
+    expect(r).toEqual({ charged: 1, total_cents: 474, on_payment_plan: 0 }); // 4733 * 10% = 473.3 -> 474
     expect(await tx(S.ctx('clerk'), (c) => balance(c, S.accounts.a1))).toBe(0);
     expect(await tx(S.ctx('clerk'), (c) => balance(c, S.accounts.a2))).toBe(4733 + 474);
     const again = await tx(S.ctx('clerk'), (c) => runPenalties(c, S.users.clerk.id, '2026-12-01'));

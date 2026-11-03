@@ -39,6 +39,7 @@ const routes = [
   [/^\/staff\/runs$/, staff.runs],
   [/^\/staff\/runs\/([\w-]+)$/, staff.run],
   [/^\/staff\/approvals$/, staff.approvals],
+  [/^\/staff\/plans$/, staff.plans],
   [/^\/staff\/accounts$/, staff.accounts],
   [/^\/staff\/accounts\/([\w-]+)$/, staff.account],
   [/^\/staff\/disputes$/, staff.disputes],
@@ -74,6 +75,7 @@ function tabsFor() {
     if (has('billing_clerk')) t.push(['#/staff/readings', 'Review readings']);
     if (has('billing_clerk', 'city_admin', 'approver', 'auditor')) t.push(['#/staff/runs', 'Bill runs']);
     if (has('approver', 'billing_clerk', 'cashier', 'customer_service', 'city_admin', 'auditor')) t.push(['#/staff/approvals', 'Approvals']);
+    if (has('approver')) t.push(['#/staff/plans', 'Payment plans']);
     t.push(['#/staff/accounts', 'Accounts']);
   } else if (has('site_admin')) t.push(['#/staff', 'Staff home']);
   if (has('city_admin', 'site_admin', 'auditor', 'billing_clerk')) t.push(['#/admin', 'Administration']);

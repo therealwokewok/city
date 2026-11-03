@@ -4,6 +4,8 @@ import { penaltyCents } from '../money.js';
 import { Line, priceRate, RateConfig, taxLine, validateRate } from '../rates.js';
 import { loadSettings } from '../settings.js';
 import { bad, forbid, notFound, requirePerm } from './accounts.js';
+import { protectedAccounts } from './arrangements.js';
+import { applyCorrection } from './corrections.js';
 
 // ---------- meter readings ----------
 export async function submitReading(c: pg.PoolClient, actor: string, r: {
@@ -197,10 +199,14 @@ export async function runPenalties(c: pg.PoolClient, actor: string, asOf: string
   const s = await loadSettings(c);
   await elevate(c, 'ledger.post');
   const due = (await c.query(
-    `select id, account_id, total_cents from bills where status = 'posted' and penalized_at is null and due_date < $1::date
+    `select id, account_id, total_cents, posted_at from bills where status = 'posted' and penalized_at is null and due_date < $1::date
      order by due_date, id for update`, [asOf])).rows;
-  let count = 0, total = 0;
+  const plans = await protectedAccounts(c, asOf);
+  let count = 0, total = 0, skipped = 0;
   for (const b of due) {
+    // A bill that is part of a payment plan the customer is keeping up with gets no late charge.
+    const plan = plans.get(b.account_id);
+    if (plan && b.posted_at && new Date(b.posted_at) <= plan.since) { skipped++; continue; }
     const bal = (await c.query('select coalesce(sum(amount_cents), 0) as b from ledger_entries where account_id = $1', [b.account_id])).rows[0].b as number;
     const overdue = Math.min(b.total_cents, bal);
     const pen = penaltyCents(overdue, s.penalty_bps);
@@ -212,8 +218,8 @@ export async function runPenalties(c: pg.PoolClient, actor: string, asOf: string
     }
     await c.query('update bills set penalized_at = now() where id = $1', [b.id]);
   }
-  await audit(c, actor, 'penalty.run', { as_of: asOf, charged: count, total_cents: total });
-  return { charged: count, total_cents: total };
+  await audit(c, actor, 'penalty.run', { as_of: asOf, charged: count, total_cents: total, on_payment_plan: skipped });
+  return { charged: count, total_cents: total, on_payment_plan: skipped };
 }
 
 export async function shutoffList(c: pg.PoolClient, asOf: string) {
@@ -228,7 +234,29 @@ export async function shutoffList(c: pg.PoolClient, asOf: string) {
        and coalesce((select kind from work_orders w where w.account_id = a.id and w.status = 'done' order by w.completed_at desc limit 1), '') <> 'shutoff'
      order by a.account_number`,
     [asOf, s.shutoff_notice_days]);
-  return r.rows;
+  // What is still to be paid on a plan they are keeping up with does not count as overdue; anything else still does.
+  const plans = await protectedAccounts(c, asOf);
+  return r.rows
+    .map((x) => ({ ...x, overdue_cents: Number(x.overdue_cents) - (plans.get(x.id)?.remaining_cents ?? 0), on_plan: plans.has(x.id) }))
+    .filter((x) => x.overdue_cents > 0);
+}
+
+/**
+ * Posted bills, newest first, each with how much of it is still owed. What is owed is the account balance, counted
+ * against the newest bills first, so a partial payment shows the older bill as paid and the newest as partly paid.
+ */
+export async function billsWithStatus(c: pg.PoolClient, accountId: string, limit = 24) {
+  const bills = (await c.query(
+    `select id, lines, total_cents, due_date, posted_at, period_start, period_end from bills
+     where account_id = $1 and status = 'posted' order by posted_at desc, id desc limit $2`, [accountId, limit])).rows;
+  let left = Math.max(0, Number(await balance(c, accountId)));
+  for (const b of bills) {
+    const t = Number(b.total_cents);
+    const owe = Math.max(0, Math.min(t, left));
+    left -= owe;
+    Object.assign(b, { left_cents: owe, paid_cents: Math.max(0, t - owe), pay_status: owe <= 0 ? 'paid' : owe < t ? 'partly_paid' : 'unpaid' });
+  }
+  return bills;
 }
 
 export async function balance(c: pg.PoolClient, accountId: string): Promise<number> {
@@ -295,6 +323,7 @@ export async function decideApproval(c: pg.PoolClient, actor: string, id: string
   if (ap.requested_by === actor) throw forbid('You cannot decide a request you made');
   if (decision === 'reject') {
     await c.query(`update approvals set status = 'rejected', decided_at = now() where id = $1`, [id]);
+    await c.query(`update reading_corrections set status = 'rejected' where approval_id = $1 and status = 'pending'`, [id]);
     await audit(c, actor, 'approval.reject', { approval_id: id });
     return { status: 'rejected' as const };
   }
@@ -317,6 +346,9 @@ export async function decideApproval(c: pg.PoolClient, actor: string, id: string
       `insert into ledger_entries (city_id, account_id, kind, amount_cents, ref_type, ref_id, memo, created_by)
        values (app_city(), $1, 'refund', $2, 'approval', $3, $4, $5)`, [ap.account_id, ap.amount_cents, id, 'Refund: ' + ap.reason, actor]);
   } else if (ap.kind === 'adjustment') {
+    // A fixed meter reading: change the reading itself in the same step as the money.
+    const fix = (await c.query(`select id from reading_corrections where approval_id = $1 and status = 'pending'`, [id])).rows[0];
+    if (fix) await applyCorrection(c, fix.id);
     await c.query(
       `insert into ledger_entries (city_id, account_id, kind, amount_cents, ref_type, ref_id, memo, created_by)
        values (app_city(), $1, 'adjustment', $2, 'approval', $3, $4, $5)`, [ap.account_id, ap.amount_cents, id, ap.reason, actor]);

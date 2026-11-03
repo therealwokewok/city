@@ -18,6 +18,9 @@ export const dashboard = safe(async () => {
   if (has('billing_clerk', 'city_admin', 'approver', 'cashier', 'customer_service', 'auditor')) {
     cards.push(card(await count('/api/staff/approvals', 'approvals'), 'requests waiting for approval', '#/staff/approvals', 'See approvals'));
   }
+  if (has('approver', 'billing_clerk', 'customer_service', 'city_admin')) {
+    cards.push(card(await count('/api/staff/arrangements', 'arrangements'), 'payment plan requests', '#/staff/plans', 'See payment plans'));
+  }
   if (has('billing_clerk', 'customer_service')) {
     cards.push(card(await count('/api/staff/disputes', 'disputes'), 'bill questions from residents', '#/staff/disputes', 'See questions'));
   }
@@ -304,6 +307,18 @@ export const account = safe(async (id) => {
     if (!ok) return;
     try { const r = await api('POST', `/api/staff/accounts/${id}/link-code`, {}); fill(panel, h('div', { class: 'card' }, h('p', {}, 'New link code (shown once):'), h('p', { class: 'owe' }, r.link_code))); } catch (e) { showError(panel, e.message); }
   } }, 'Make a new link code'));
+  if (has('billing_clerk', 'customer_service', 'city_admin') && d.balance_cents >= 200 && !(d.arrangement && ['pending', 'approved'].includes(d.arrangement.status))) {
+    buttons.append(h('button', { class: 'btn secondary', type: 'button', onclick: () => mini('Set up a payment plan', [
+      h('p', { class: 'hint' }, `For a customer who calls or comes in. The plan covers what they owe now (${money(d.balance_cents)}). A person who can approve payment plans must approve it, and it cannot be you.`),
+      h('div', { class: 'field' }, h('label', { for: 'pn' }, 'Number of monthly payments'), h('select', { id: 'pn' }, [2, 3, 4, 5, 6, 9, 12, 18, 24].filter((n) => d.balance_cents >= n * 100).map((n) => h('option', { value: String(n) }, `${n} payments of about ${money(Math.ceil(d.balance_cents / n))}`)))),
+      field({ id: 'pf', label: 'First payment due', type: 'date', required: true }),
+      field({ id: 'pw', label: 'Why they need more time', tag: 'textarea', required: true })], 'Send for approval', async (f) => {
+      const first = f.querySelector('#pf').value;
+      if (!first) throw new Error('Please pick the date of the first payment.');
+      await api('POST', `/api/staff/accounts/${id}/arrangement`, { installments: Number(f.querySelector('#pn').value), first_due: first, reason: f.querySelector('#pw').value.trim() });
+      refresh();
+    }) }, 'Set up a payment plan'));
+  }
   const canManage = has('billing_clerk', 'customer_service', 'city_admin');
   const setSvc = async (code, enabled, quantity, msg) => {
     try { await api('POST', `/api/staff/accounts/${id}/services`, { code, enabled, quantity }); await redo(); announce(msg); } catch (e) { showError(svcSec, e.message); }
@@ -328,7 +343,49 @@ export const account = safe(async (id) => {
     const aq = h('input', { type: 'number', min: '1', max: '99', value: '1', class: 'qty', id: 'addq' });
     const meterRows = d.meters.map((m) => h('li', { class: 'svc-row' },
       h('div', { class: 'svc-name' }, h('strong', {}, `${(d.services.find((x) => x.code === m.service_code) || {}).name || m.service_code} meter ${m.serial}`), h('span', { class: 'muted' }, `${m.location || 'No location noted'}${m.active ? '' : ' (off)'}`)),
-      canManage ? h('div', { class: 'svc-actions' }, h('button', { class: 'btn secondary small', type: 'button', onclick: async () => { try { await api('POST', `/api/staff/meters/${m.id}/active`, { active: !m.active }); await redo(); announce('Meter updated.'); } catch (e) { showError(svcSec, e.message); } } }, m.active ? 'Turn this meter off' : 'Turn this meter on')) : null));
+      canManage || has('billing_clerk') ? h('div', { class: 'svc-actions' }, has('billing_clerk') ? h('button', { class: 'btn secondary small', type: 'button', onclick: () => fixReading(m) }, 'Fix a wrong reading') : null, !canManage ? null : h('button', { class: 'btn secondary small', type: 'button', onclick: async () => { try { await api('POST', `/api/staff/meters/${m.id}/active`, { active: !m.active }); await redo(); announce('Meter updated.'); } catch (e) { showError(svcSec, e.message); } } }, m.active ? 'Turn this meter off' : 'Turn this meter on')) : null));
+  // Fixing a misread meter: pick the reading, type the right number, see the bill change, send it for approval.
+  async function fixReading(m) {
+    const name = `${(d.services.find((x) => x.code === m.service_code) || {}).name || m.service_code} meter ${m.serial}`;
+    const box = h('section', { class: 'card', 'aria-labelledby': 'fix-h' }, h('h2', { id: 'fix-h', tabindex: '-1' }, `Fix a wrong reading: ${name}`));
+    fill(panel, box); box.querySelector('h2').focus();
+    try {
+      const { readings: rs } = await api('GET', `/api/staff/meters/${m.id}/readings`);
+      if (!rs.length) { box.append(h('p', { class: 'muted' }, 'This meter has no accepted readings yet.')); return; }
+      box.append(h('p', {}, 'Pick the reading that was wrong.'), h('ul', { class: 'list' }, rs.map((r) => h('li', { class: 'svc-row' },
+        h('div', { class: 'svc-name' }, h('strong', {}, `${Number(r.value).toLocaleString()} on ${plainDate(r.read_at)}`), h('span', { class: 'muted' }, `${Number(r.usage).toLocaleString()} used${r.billed ? ', already billed' : ', not billed yet'}`)),
+        h('div', { class: 'svc-actions' }, r.fix_waiting ? h('span', { class: 'status warn' }, 'Fix waiting for approval') : h('button', { class: 'btn small', type: 'button', onclick: () => fixForm(r) }, 'This one is wrong'))))),
+        h('button', { class: 'btn secondary', type: 'button', onclick: () => fill(panel) }, 'Cancel'));
+    } catch (e) { showError(box, e.message); }
+    function fixForm(r) {
+      const out = h('div', { role: 'status' });
+      const f = h('form', { class: 'card', novalidate: true }, h('h2', { tabindex: '-1' }, `Reading of ${Number(r.value).toLocaleString()} on ${plainDate(r.read_at)}`),
+        field({ id: 'fv', label: 'The right meter number', inputmode: 'decimal', required: true, autocomplete: 'off' }),
+        field({ id: 'fr', label: 'What went wrong', hint: 'For example: "Reader wrote 15000, meter shows 14500."', tag: 'textarea', required: true }),
+        h('div', { class: 'actions' }, h('button', { class: 'btn secondary', type: 'button', id: 'fprev' }, 'Show what changes'), h('button', { class: 'btn', type: 'submit' }, 'Send the fix'), h('button', { class: 'btn secondary', type: 'button', onclick: () => fill(panel) }, 'Cancel')),
+        out);
+      const val = () => { const v = Number(f.querySelector('#fv').value.replace(/[,\s]/g, '')); if (!(v >= 0) || f.querySelector('#fv').value.trim() === '') throw new Error('Please type the right meter number.'); return v; };
+      const show = (p) => fill(out, h('div', { class: 'notice' + (p.amount_cents > 0 ? ' warn' : '') },
+        h('p', {}, `Usage changes by ${p.usage_change > 0 ? '+' : ''}${p.usage_change.toLocaleString()} units.`),
+        p.bills.length ? h('p', {}, p.amount_cents < 0 ? `The customer gets a credit of ${money(-p.amount_cents)}.` : p.amount_cents > 0 ? `The customer will owe ${money(p.amount_cents)} more.` : 'The bill does not change.')
+          : h('p', {}, 'Not billed yet, so no money changes. The next bill will use the right number.'),
+        p.bills.map((b) => h('p', { class: 'muted' }, `Bill ending ${plainDate(b.period_end)}: ${money(b.old_cents)} for these charges, should be ${money(b.new_cents)}.`)),
+        p.amount_cents !== 0 ? h('p', {}, 'A different person must approve this. The reading is changed when they do.') : null));
+      f.querySelector('#fprev').addEventListener('click', async (e) => {
+        try { show(await busy(e.target, 'Working it out...', () => api('POST', `/api/staff/readings/${r.id}/correction/preview`, { value: val() }))); } catch (err) { showError(out, err.message); }
+      });
+      f.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        try {
+          const reason = f.querySelector('#fr').value.trim();
+          if (!reason) throw new Error('Please say what went wrong.');
+          const res = await busy(f.querySelector('button[type=submit]'), 'Sending...', () => api('POST', `/api/staff/readings/${r.id}/correction`, { value: val(), reason }));
+          fill(panel, h('p', { class: 'notice' }, res.status === 'applied' ? 'Fixed. The next bill will use the right number.' : `Sent for approval. When it is approved the reading is fixed and ${res.preview.amount_cents < 0 ? `a credit of ${money(-res.preview.amount_cents)}` : `a charge of ${money(res.preview.amount_cents)}`} goes on the account.`));
+        } catch (err) { showError(out, err.message); }
+      });
+      fill(panel, f); f.querySelector('h2').focus();
+    }
+  }
     const mser = h('input', { id: 'mser', type: 'text', autocomplete: 'off' }), mloc = h('input', { id: 'mloc', type: 'text', autocomplete: 'off' });
     // Only services this account already has can get a meter.
     const msel = h('select', { id: 'msvc' }, city.services.filter((x) => x.kind === 'metered' && x.enabled && have.has(x.code)).map((x) => h('option', { value: x.code }, x.name)));
@@ -347,11 +404,69 @@ export const account = safe(async (id) => {
   };
   drawSvc();
   out.append(h('a', { href: '#/staff/accounts' }, '← All accounts'), h('h1', {}, a.name), h('p', { class: 'muted' }, `${a.service_address} - Account ${a.account_number}`),
-    h('section', { class: 'card' }, h('p', { class: 'muted' }, 'Balance'), h('p', { class: 'owe' }, money(d.balance_cents))), buttons, panel, svcSec,
+    h('section', { class: 'card' }, h('p', { class: 'muted' }, 'Balance'), h('p', { class: 'owe' }, money(d.balance_cents))), buttons, panel,
+    staffPlan(d.arrangement), svcSec,
+    h('h2', {}, 'Bills'),
+    d.bills.length ? h('table', { class: 'tbl' }, h('thead', {}, h('tr', {}, h('th', {}, 'Period'), h('th', {}, 'Due'), h('th', {}, 'Amount'), h('th', {}, 'Paid?'))),
+      h('tbody', {}, d.bills.map((b) => h('tr', {}, h('td', { 'data-label': 'Period' }, `${plainDate(b.period_start)} to ${plainDate(b.period_end)}`), h('td', { 'data-label': 'Due' }, plainDate(b.due_date)),
+        h('td', { 'data-label': 'Amount', class: 'amount' }, money(b.total_cents)),
+        h('td', { 'data-label': 'Paid?' }, b.pay_status === 'paid' ? h('span', { class: 'status ok' }, 'Paid') : b.pay_status === 'partly_paid' ? h('span', { class: 'status warn' }, `Partly, ${money(b.left_cents)} left`) : h('span', { class: 'status warn' }, 'Not paid')))))) : h('p', { class: 'muted' }, 'No bills yet.'),
     h('h2', {}, 'History'),
     d.ledger.length ? h('table', { class: 'tbl' }, h('thead', {}, h('tr', {}, h('th', {}, 'Date'), h('th', {}, 'What'), h('th', {}, 'Amount'))),
       h('tbody', {}, d.ledger.map((l) => h('tr', {}, h('td', { 'data-label': 'Date' }, plainDate(l.created_at)), h('td', { 'data-label': 'What' }, `${({ bill: 'Bill', payment: 'Payment', adjustment: 'Adjustment', charge: 'Charge', penalty: 'Late charge', refund: 'Refund', reversal: 'Reversal' })[l.kind] || l.kind}${l.memo ? ': ' + plainNote(l.memo) : ''}`), h('td', { 'data-label': 'Amount', class: 'amount' }, money(l.amount_cents)))))) : h('p', { class: 'muted' }, 'No activity yet.'));
   return out;
+});
+
+// ---------- payment plans ----------
+const planTable = (schedule, next) => h('table', { class: 'tbl' }, h('thead', {}, h('tr', {}, h('th', {}, 'Pay by'), h('th', {}, 'Amount'))),
+  h('tbody', {}, schedule.map((x) => h('tr', {}, h('td', { 'data-label': 'Pay by' }, plainDate(x.due), next && next.due === x.due ? h('strong', {}, ' (next)') : null), h('td', { 'data-label': 'Amount' }, money(x.amount_cents))))));
+
+function staffPlan(p) {
+  if (!p || !['pending', 'approved'].includes(p.status) || p.state === 'paid_off') return null;
+  const msg = h('div', { role: 'status' });
+  const end = has('billing_clerk', 'customer_service', 'city_admin') ? h('button', { class: 'btn secondary', type: 'button', onclick: async (e) => {
+    if (!(await confirmDialog({ title: 'End this payment plan?', body: 'Late charges and the shutoff list will treat the account normally again.', yes: 'Yes, end it', no: 'No' }))) return;
+    try { await busy(e.target, 'Ending...', () => api('POST', `/api/staff/arrangements/${p.id}/cancel`, {})); window.dispatchEvent(new Event('hashchange')); } catch (err) { showError(msg, err.message); }
+  } }, p.status === 'pending' ? 'Withdraw this request' : 'End this plan') : null;
+  return h('section', { class: 'card', 'aria-labelledby': 'plan-h' }, h('h2', { id: 'plan-h' }, 'Payment plan'),
+    p.status === 'pending' ? h('p', {}, h('span', { class: 'status warn' }, 'Waiting for approval'))
+      : p.state === 'behind' ? h('p', { class: 'notice warn' }, `Behind. Paid ${money(p.paid_cents)} of ${money(p.expected_cents)} due so far.`)
+      : h('p', { class: 'notice' }, `On track. Paid ${money(p.paid_cents)} of ${money(p.total_cents)}.`),
+    h('p', { class: 'muted' }, `Reason given: ${p.reason}`),
+    planTable(p.schedule, p.next), msg, end ? h('div', { class: 'actions' }, end) : null);
+}
+
+export const plans = safe(async () => {
+  const { arrangements: list } = await api('GET', '/api/staff/arrangements');
+  const ul = h('ul', { class: 'list' });
+  const canDecide = has('approver');
+  const draw = () => fill(ul, ...(list.length ? list.map((p) => {
+    const err = h('div', { role: 'alert' });
+    const n = h('select', { id: `n-${p.id}` }, [2, 3, 4, 5, 6, 9, 12, 18, 24].map((x) => h('option', { value: String(x), selected: x === p.installments ? true : null }, `${x} monthly payments`)));
+    const first = h('input', { type: 'date', id: `f-${p.id}`, value: p.first_due });
+    const note = h('textarea', { id: `t-${p.id}`, rows: 2, maxlength: 1000 });
+    const decide = async (decision, btn) => {
+      try {
+        await busy(btn, 'Saving...', () => api('POST', `/api/staff/arrangements/${p.id}/decide`, { decision, installments: Number(n.value), first_due: first.value || undefined, note: note.value.trim() || undefined }));
+        list.splice(list.indexOf(p), 1); draw(); announce(decision === 'approve' ? 'Plan approved. The customer was emailed.' : 'Request declined. The customer was emailed.');
+      } catch (e) { showError(err, e.message); }
+    };
+    const yes = h('button', { class: 'btn small', type: 'button' }, 'Approve'); const no = h('button', { class: 'btn small secondary', type: 'button' }, 'Decline');
+    yes.addEventListener('click', () => decide('approve', yes)); no.addEventListener('click', () => decide('decline', no));
+    return h('li', {}, err,
+      h('div', { class: 'row2' }, h('strong', {}, h('a', { href: `#/staff/accounts/${p.account_id}` }, `${p.name}, account ${p.account_number}`)), h('span', { class: 'amount' }, money(p.total_cents))),
+      h('p', { class: 'muted' }, `${p.service_address}. Asked ${plainDate(p.created_at)}${p.by_staff ? ' by staff for the customer' : ' by the customer'}. Owes ${money(p.balance_cents)} today.`),
+      h('p', {}, `Reason: ${p.reason}`),
+      planTable(p.current?.schedule || []),
+      canDecide && !p.mine ? h('div', { class: 'addbox' },
+        h('div', { class: 'addgrid' }, h('div', {}, h('label', { for: `n-${p.id}` }, 'Payments'), n), h('div', {}, h('label', { for: `f-${p.id}` }, 'First payment due'), first)),
+        h('div', { class: 'field' }, h('label', { for: `t-${p.id}` }, 'Note to the customer'), h('p', { class: 'hint' }, 'Needed if you decline. The customer sees it.'), note),
+        h('div', { class: 'actions row' }, yes, no))
+        : h('p', { class: 'muted' }, p.mine ? 'You asked for this one, so a different person must decide it.' : 'An approver decides payment plans.'));
+  }) : [h('li', {}, h('p', { class: 'notice' }, '✓ No payment plan requests waiting.'))]));
+  draw();
+  return h('div', {}, h('h1', {}, 'Payment plans'),
+    h('p', {}, 'Customers who asked to pay what they owe in monthly parts. While a customer keeps up with an approved plan, the bills in it get no late charge and the account stays off the shutoff list.'), ul);
 });
 
 // ---------- disputes ----------
@@ -456,7 +571,7 @@ export const shutoffs = safe(async () => {
     const doneShutoffs = [...latest.values()].filter((x) => x.kind === 'shutoff' && !open.some((y) => y.account_id === x.account_id && y.kind === 'reconnect'));
     fill(host,
       canOrder ? h('section', { class: 'card', 'aria-labelledby': 'so-h' }, h('h2', { id: 'so-h' }, 'Past due and past the notice period'),
-        l.accounts.length ? h('ul', { class: 'list' }, l.accounts.map((a) => h('li', {}, h('div', { class: 'row2' }, h('span', {}, h('strong', {}, `${a.account_number} ${a.name}`), h('br'), h('span', { class: 'muted' }, a.service_address)), h('span', { class: 'amount' }, money(a.overdue_cents))),
+        l.accounts.length ? h('ul', { class: 'list' }, l.accounts.map((a) => h('li', {}, h('div', { class: 'row2' }, h('span', {}, h('strong', {}, `${a.account_number} ${a.name}`), h('br'), h('span', { class: 'muted' }, a.service_address), a.on_plan ? h('span', { class: 'muted' }, ' (on a payment plan; plan amount not counted)') : null), h('span', { class: 'amount' }, money(a.overdue_cents))),
           open.some((x) => x.address === a.service_address && x.kind === 'shutoff') ? h('p', { class: 'muted' }, 'Shutoff already ordered') : h('button', { class: 'btn secondary', type: 'button', 'aria-label': `Order shutoff for ${a.name}`, onclick: () => order(a.id, 'shutoff') }, 'Order shutoff')))) : h('p', { class: 'notice' }, '✓ No accounts to shut off.')) : null,
       h('section', { class: 'card', 'aria-labelledby': 'oo-h' }, h('h2', { id: 'oo-h' }, 'Open orders'),
         open.length ? h('ul', { class: 'list' }, open.map((x) => h('li', {}, h('strong', {}, `${kindLabel(x.kind)}: ${x.address}`), h('p', { class: 'muted' }, `Account ${x.account_number}, ${x.name}`),

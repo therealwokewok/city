@@ -19,7 +19,7 @@ export const hub = safe(async () => {
   const card = (title, text, href) => h('section', { class: 'card' }, h('h2', {}, title), h('p', {}, text), h('a', { class: 'btn secondary', href }, 'Open'));
   const cards = [];
   if (has('city_admin', 'site_admin', 'auditor')) cards.push(card('People and roles', 'Add staff, choose what each person can do, turn off someone who left.', '#/admin/people'));
-  if (has('city_admin', 'site_admin')) cards.push(card('City settings', 'Due dates, late charges, phone number, office hours and return address.', '#/admin/settings'));
+  if (has('city_admin', 'site_admin')) cards.push(card('City settings', 'Due dates, late charges, online payment fees, phone number, office hours and return address.', '#/admin/settings'));
   if (has('city_admin', 'site_admin')) cards.push(card('Colors, logo and demo mode', 'Match the city website: colors and logo on every page, and the demo notice on or off.', '#/admin/appearance'));
   if (has('city_admin', 'site_admin')) cards.push(card('Updates', 'See if a newer version of this program is ready, and choose where updates come from.', '#/admin/updates'));
   if (has('city_admin', 'billing_clerk')) cards.push(card('Services and rates', 'Turn water, sewer, trash and electric on or off, and set what each one costs.', '#/admin/rates'));
@@ -30,6 +30,36 @@ export const hub = safe(async () => {
 }, 'Administration');
 
 // =============== settings ===============
+// Online payment fees. The city's processor charges it for each payment; the city can pass that on as a line item.
+function feeFields(s) {
+  const radio = (value, label, hint) => h('label', { class: 'radio-card', for: `cf-${value}` },
+    h('input', { type: 'radio', name: 'card_fee', id: `cf-${value}`, value, checked: s.card_fee === value ? true : null }), h('span', {}, h('strong', {}, label), hint ? h('span', { class: 'hint' }, ' ' + hint) : null));
+  const example = h('p', { class: 'hint', 'aria-live': 'polite' });
+  const box = h('fieldset', { class: 'addbox' }, h('legend', {}, h('h2', {}, 'Fees for paying online')),
+    h('p', {}, 'Stripe, the payment company, keeps part of each online payment. You can add that cost to what the customer pays, as its own line, so the city receives the full bill amount.'),
+    h('p', { class: 'notice warn' }, 'Before turning a card fee on: card company rules allow a fee on credit cards only (not debit), up to 3%, and Visa must be told 30 days ahead. A fee on all cards needs Visa\'s utility Service Fee Program. Please check with Stripe and the city attorney first.'),
+    h('div', { role: 'radiogroup', 'aria-label': 'Card fee' },
+      radio('off', 'No card fee', '(the city pays it)'), radio('credit', 'Fee on credit cards only', '(debit cards pay no fee)'), radio('all', 'Fee on all cards', '(only with Visa\'s Service Fee Program)')),
+    field({ id: 'cfp', label: 'Card: Stripe percentage', hint: 'Stripe\'s standard is 2.9', inputmode: 'decimal', value: s.card_fee_bps / 100 }),
+    field({ id: 'cff', label: 'Card: Stripe amount per payment, in cents', hint: 'Stripe\'s standard is 30', inputmode: 'numeric', value: s.card_fee_fixed_cents }),
+    field({ id: 'cfm', label: 'Card: never more than this percent of the bill', hint: '3 keeps within card company limits. 0 means no limit.', inputmode: 'decimal', value: s.card_fee_max_bps / 100 }),
+    h('label', { class: 'check', for: 'achon' }, h('input', { type: 'checkbox', id: 'achon', checked: s.ach_fee ? true : null }), 'Add a fee to bank account payments'),
+    field({ id: 'afp', label: 'Bank: Stripe percentage', hint: 'Stripe\'s standard is 0.8', inputmode: 'decimal', value: s.ach_fee_bps / 100 }),
+    field({ id: 'afm', label: 'Bank: largest fee, in dollars', hint: 'Stripe\'s standard limit is 5.00. 0 means no limit.', inputmode: 'decimal', value: s.ach_fee_max_cents / 100 }),
+    example);
+  // A worked example, so it is easy to see what a customer will pay.
+  const show = () => {
+    const val = (id) => Number(box.querySelector('#' + id).value) || 0;
+    const mode = box.querySelector('input[name=card_fee]:checked')?.value || 'off';
+    const bps = val('cfp') * 100, fixed = val('cff'), max = val('cfm') * 100;
+    let fee = mode === 'off' ? 0 : Math.ceil(((10000 + fixed) * 10000) / (10000 - bps)) - 10000;
+    if (max > 0) fee = Math.min(fee, Math.floor(10000 * max / 10000));
+    example.textContent = mode === 'off' ? 'Example: a $100.00 card payment costs the customer $100.00.' : `Example: a $100.00 ${mode === 'credit' ? 'credit card ' : 'card '}payment costs the customer ${money(10000 + Math.max(fee, 0))}.`;
+  };
+  box.addEventListener('input', show); box.addEventListener('change', show); show();
+  return box;
+}
+
 export const settings = safe(async () => {
   const s = await api('GET', '/api/staff/settings');
   const form = h('form', { novalidate: true, class: 'card' },
@@ -44,6 +74,7 @@ export const settings = safe(async () => {
     field({ id: 'tax', label: 'Sales tax (percent)', hint: 'Use 0 if the city does not charge tax on utilities', inputmode: 'decimal', value: s.tax_bps / 100 }),
     field({ id: 'factor', label: 'Flag a meter reading that uses this many times the last use', hint: 'For example 3 catches a reading that is three times higher than last time', inputmode: 'decimal', value: s.high_usage_factor }),
     field({ id: 'stepup', label: 'Minutes a safety check stays good', hint: 'Staff retype an emailed code before risky actions. This is how long it lasts.', inputmode: 'numeric', value: s.stepup_minutes }),
+    feeFields(s),
     h('div', { class: 'actions' }, h('button', { class: 'btn', type: 'submit' }, 'Save settings')));
   const msg = h('div');
   form.addEventListener('submit', async (e) => {
@@ -60,6 +91,13 @@ export const settings = safe(async () => {
         tax_bps: Math.round(need('tax', 'Sales tax', { max: 100 }) * 100),
         high_usage_factor: need('factor', 'High use flag', { min: 1, max: 1000 }),
         stepup_minutes: Math.round(need('stepup', 'Safety check minutes', { min: 1, max: 120 })),
+        card_fee: form.querySelector('input[name=card_fee]:checked')?.value || 'off',
+        card_fee_bps: Math.round(need('cfp', 'Card fee percent', { max: 20 }) * 100),
+        card_fee_fixed_cents: Math.round(need('cff', 'Card fee cents', { max: 500 })),
+        card_fee_max_bps: Math.round(need('cfm', 'Card fee limit', { max: 20 }) * 100),
+        ach_fee: form.querySelector('#achon').checked,
+        ach_fee_bps: Math.round(need('afp', 'Bank fee percent', { max: 20 }) * 100),
+        ach_fee_max_cents: Math.round(need('afm', 'Bank fee limit') * 100),
       };
       await busy(form.querySelector('button[type=submit]'), 'Saving...', () => api('PUT', '/api/staff/settings', body));
       form.querySelector('.error')?.remove();

@@ -18,6 +18,14 @@ export interface CitySettings {
   update_check: boolean;          // look for new versions on GitHub
   update_repo: string;            // where new versions come from
   demo_mode: boolean;             // banner, watermark, hidden from search engines, no real money moves
+  // Online payment fees passed on to the customer (see fees.ts). Off by default.
+  card_fee: 'off' | 'credit' | 'all'; // 'credit': credit cards only (a surcharge); 'all': any card (service fee program)
+  card_fee_bps: number;           // processor's percentage, 290 = 2.9%
+  card_fee_fixed_cents: number;   // processor's fixed part, 30 = 30 cents
+  card_fee_max_bps: number;       // never more than this share of the bill, 300 = 3%; 0 = no cap
+  ach_fee: boolean;
+  ach_fee_bps: number;            // 80 = 0.8%
+  ach_fee_max_cents: number;      // 500 = $5.00; 0 = no cap
 }
 
 export const DEFAULT_UPDATE_REPO = 'https://github.com/therealwokewok/city';
@@ -34,6 +42,8 @@ export const DEFAULT_SETTINGS: CitySettings = {
   penalty_bps: 1000, due_days: 15, shutoff_notice_days: 5, approval_limit_cents: 50000, tax_bps: 0,
   high_usage_factor: 3, stepup_minutes: 10, remit_to: '', return_address: '', office_hours: '', phone: '',
   theme_color: '', accent_color: '', rule_color: '', update_check: true, update_repo: DEFAULT_UPDATE_REPO,
+  card_fee: 'off', card_fee_bps: 290, card_fee_fixed_cents: 30, card_fee_max_bps: 300,
+  ach_fee: false, ach_fee_bps: 80, ach_fee_max_cents: 500,
   demo_mode: false, // new cities made by the bootstrap script start in demo mode; see bootstrap.ts
 };
 
@@ -43,7 +53,7 @@ export async function loadSettings(c: pg.PoolClient): Promise<CitySettings> {
 }
 
 const NUMERIC_KEYS = ['penalty_bps', 'due_days', 'shutoff_notice_days', 'approval_limit_cents', 'tax_bps',
-  'high_usage_factor', 'stepup_minutes'];
+  'high_usage_factor', 'stepup_minutes', 'card_fee_bps', 'card_fee_fixed_cents', 'card_fee_max_bps', 'ach_fee_bps', 'ach_fee_max_cents'];
 const TEXT_KEYS = ['remit_to', 'return_address', 'office_hours', 'phone'];
 
 export function validateSettings(input: Record<string, unknown>): Partial<CitySettings> {
@@ -69,6 +79,12 @@ export function validateSettings(input: Record<string, unknown>): Partial<CitySe
     } else if (k === 'update_check') {
       if (typeof v !== 'boolean') throw new Error('bad value for update_check');
       out[k] = v;
+    } else if (k === 'card_fee') {
+      if (v !== 'off' && v !== 'credit' && v !== 'all') throw new Error('bad value for card_fee');
+      out[k] = v;
+    } else if (k === 'ach_fee') {
+      if (typeof v !== 'boolean') throw new Error('bad value for ach_fee');
+      out[k] = v;
     } else if (k === 'demo_mode') {
       if (typeof v !== 'boolean') throw new Error('bad value for demo_mode');
       out[k] = v;
@@ -77,6 +93,7 @@ export function validateSettings(input: Record<string, unknown>): Partial<CitySe
       out[k] = v.trim();
     } else throw new Error(`unknown setting ${k}`);
   }
+  for (const k of ['card_fee_bps', 'ach_fee_bps', 'card_fee_max_bps']) if (typeof out[k] === 'number' && (out[k] as number) > 2000) throw new Error('A fee percentage cannot be more than 20%');
   return out as Partial<CitySettings>;
 }
 

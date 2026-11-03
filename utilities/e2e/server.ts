@@ -12,14 +12,17 @@ import { permsFor } from '../src/permissions.js';
 import { buildApp } from '../src/server.js';
 
 const admin = process.env.E2E_ADMIN_URL ?? 'postgres://utilities_owner:dev@localhost/postgres';
-const dbUrl = (process.env.E2E_ADMIN_URL ?? 'postgres://utilities_owner:dev@localhost/postgres').replace(/\/[^/]*$/, '/utilities_e2e');
+// Each browser gets its own server and database (E2E_DB), so their tests never change each other's data.
+const dbName = process.env.E2E_DB ?? 'utilities_e2e';
+if (!/^utilities_e2e[a-z0-9_]*$/.test(dbName)) throw new Error('E2E_DB must start with utilities_e2e');
+const dbUrl = (process.env.E2E_ADMIN_URL ?? 'postgres://utilities_owner:dev@localhost/postgres').replace(/\/[^/]*$/, '/' + dbName);
 process.env.DATABASE_URL = dbUrl;
 process.env.DB_SET_ROLE = '1';
 
 const a = new pg.Client({ connectionString: admin });
 await a.connect();
-await a.query('drop database if exists utilities_e2e with (force)');
-await a.query('create database utilities_e2e');
+await a.query(`drop database if exists ${dbName} with (force)`);
+await a.query(`create database ${dbName}`);
 await a.end();
 await migrate(dbUrl);
 
@@ -60,6 +63,14 @@ const rd = async (m: string, v: number, at: string, id: string) => {
 for (const [m, x, y] of [[w1, 1000, 6000], [e1, 5000, 5400], [e2, 800, 900]] as [string, number, number][]) {
   await rd(m, x, '2026-09-30T12:00:00-05:00', 'seed-base-' + m.slice(0, 8));
   await rd(m, y, '2026-10-30T12:00:00-05:00', 'seed-oct-' + m.slice(0, 8));
+}
+// Payment plan and meter fix tests: one account per browser so they do not get in each other's way.
+// The October reading was written down as 1,600 when the meter said 1,100.
+for (const [num, code] of [['1101', 'PLANA22222'], ['1102', 'PLANB33333']]) {
+  const a = await acct(num, `Plan Person ${num}`, `${num} Elm St`, ['W', 'S'], code);
+  const m = await meter(a, 'W', `MO-W-${num}`, `${num} Elm St`);
+  await rd(m, 1000, '2026-09-30T12:00:00-05:00', 'seed-base-' + num);
+  await rd(m, 1600, '2026-10-30T12:00:00-05:00', 'seed-oct-' + num);
 }
 const runId = await tx(ctx('clerk'), (c) => createRun(c, users.clerk.id, { period_start: '2026-10-01', period_end: '2026-10-31' }));
 await tx(ctx('clerk'), (c) => calculateRun(c, users.clerk.id, runId));

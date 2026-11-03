@@ -16,7 +16,7 @@ test('meter reader: works with no signal, then sends when back online', async ({
   await page.evaluate(async () => { await navigator.serviceWorker.ready; });
 
   await context.setOffline(true);
-  await page.getByRole('link', { name: /Water/ }).click();
+  await page.getByRole('link', { name: /100 Main St Water/ }).click();
   await expect(page.getByRole('heading', { level: 1, name: '100 Main St' })).toBeVisible();
   await page.getByLabel('What does the meter say now?').fill('abc');
   await page.getByRole('button', { name: 'Save this reading' }).click();

@@ -16,12 +16,14 @@ function loadStripe() {
 const cssVar = (name, fallback) => getComputedStyle(document.documentElement).getPropertyValue(name).trim() || fallback;
 
 /** Shows the Payment Element in `host`. Returns { stripe, elements } for confirming. */
-export async function mountPaymentElement(host, { publishableKey, clientSecret }) {
+// With `amount` (and no clientSecret) the form only collects the details; the charge is made later by the server,
+// after any fee is worked out. With `clientSecret` it works on a payment or setup that already exists.
+export async function mountPaymentElement(host, { publishableKey, clientSecret, amount }) {
   const Stripe = await loadStripe();
   const stripe = Stripe(publishableKey);
   const font = (file, weight) => ({ family: 'Libre Franklin', weight: String(weight), src: `url(${location.origin}/assets/fonts/${file})` });
   const elements = stripe.elements({
-    clientSecret,
+    ...(clientSecret ? { clientSecret } : { mode: 'payment', amount, currency: 'usd', paymentMethodTypes: ['card', 'us_bank_account'] }),
     fonts: [font('libre-franklin-latin-400-normal.woff2', 400), font('libre-franklin-latin-600-normal.woff2', 600), font('libre-franklin-latin-700-normal.woff2', 700)],
     appearance: {
       theme: 'stripe',
@@ -41,5 +43,5 @@ export async function mountPaymentElement(host, { publishableKey, clientSecret }
     pe.on('loaderror', (e) => { clearTimeout(t); reject(new Error(e?.error?.message || 'The secure payment form could not load.')); });
     pe.mount(host);
   });
-  return { stripe, elements };
+  return { stripe, elements, element: pe };
 }

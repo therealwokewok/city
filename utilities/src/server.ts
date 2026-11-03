@@ -18,11 +18,15 @@ import { checkCode, createSession, loadSession, markStepUp, requestCode, require
 import { canGrant, ROLES } from './permissions.js';
 import { bad, createAccount, createRate, createStaffUser, deactivateUser, forbid, grantRole, HttpError, linkAccount, notFound,
   createServiceRequest, setMeterActive, REQUEST_KINDS, updateServiceRequest, openDispute, regenLinkCode, resolveDispute, revokeRole, setAccountService, setServiceEnabled, addMeter } from './domain/accounts.js';
-import { approveRun, balance, calculateRun, createCharge, createRun, decideApproval, requestApproval, reviewReading, runPenalties,
+import { approveRun, balance, billsWithStatus, calculateRun, createCharge, createRun, decideApproval, requestApproval, reviewReading, runPenalties,
   shutoffList, submitReading } from './domain/billing.js';
+import { cancelArrangement, currentArrangement, isoDate as dateText, decideArrangement, requestArrangement } from './domain/arrangements.js';
+import { previewCorrection, requestCorrection } from './domain/corrections.js';
 import { attachProviderRef, createPendingPayment, recordCounterPayment, settleFromEvent } from './domain/payments.js';
 import { BillData, EnvelopeData, renderBills, renderEnvelopes, renderTestPage, validateProfile } from './printing.js';
 import { assertMoneyAllowed, loadSettings, themeCss, validateSettings } from './settings.js';
+import { fmt as fmtCents } from './money.js';
+import { feeFor, feeNotice, methodLabel } from './fees.js';
 
 declare module 'fastify' {
   interface FastifyRequest {
@@ -400,11 +404,10 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
     return tx(ctxOf(req), async (c) => {
       const a = (await c.query('select id, account_number, name, service_address, paperless from accounts where id = $1', [id])).rows[0];
       if (!a) throw notFound();
-      const bills = (await c.query(
-        `select id, lines, total_cents, due_date, posted_at, period_start, period_end from bills where account_id = $1 order by posted_at desc limit 24`, [id])).rows;
+      const bills = await billsWithStatus(c, id);
       const ledger = (await c.query(
         `select id, kind, amount_cents, memo, created_at from ledger_entries where account_id = $1 order by id desc limit 50`, [id])).rows;
-      return { account: a, balance_cents: await balance(c, id), bills, ledger };
+      return { account: a, balance_cents: await balance(c, id), bills, ledger, arrangement: await currentArrangement(c, id) };
     });
   });
 
@@ -431,6 +434,11 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
       return { ...p, email: req.auth!.email };
     });
     const base = `${scheme}://${req.publicHost}`;
+    // Stripe: the card form is shown first, and the charge is made after any fee is worked out (see /quote and /confirm).
+    if (deps.payments.inspectToken && deps.payments.chargeWithToken && deps.payments.publishableKey) {
+      const s = await tx(ctx, (c) => loadSettings(c));
+      return { payment_id: pending.id, publishable_key: deps.payments.publishableKey, amount_cents, deferred: true, fee_notice: feeNotice(s), return_url: `${base}/pay/done?p=${pending.id}` };
+    }
     try {
       const out = await deps.payments.createCheckout({
         paymentId: pending.id, amountCents: amount_cents, description: `Utility bill, account ${pending.account_number}`,
@@ -493,6 +501,57 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
     await tx(sys, (c) => enrollFromSetup(c, id, method));
     return { ok: true, label: method.label };
   });
+  // Before charging: look at what the resident typed (card or bank, credit or debit) and show the exact total.
+  const pendingPayment = async (req: FastifyRequest, id: string) => {
+    const sys: Ctx = { cityId: req.cityId, userId: null, perms: ['payments.settle', 'accounts.read'] };
+    const p = await tx(sys, async (c) => (await c.query('select id, account_id, status, amount_cents from payments where id = $1', [id])).rows[0]);
+    if (!p) throw notFound();
+    await tx(ctxOf(req), async (c) => { if (!(await c.query('select 1 from accounts where id = $1', [p.account_id])).rows[0]) throw notFound(); });
+    if (p.status !== 'pending') throw bad('This payment is already finished. Start a new one if you need to.');
+    return { p, sys };
+  };
+  const quoteFor = async (req: FastifyRequest, amount: number, token: string) => {
+    if (!deps.payments.inspectToken) throw bad('Not available');
+    let m;
+    try { m = await deps.payments.inspectToken(token); } catch (e) { throw bad(e instanceof Error && /accepted/.test(e.message) ? e.message : 'We could not read that card or bank account. Please check it and try again.'); }
+    const s = await tx(ctxOf(req), (c) => loadSettings(c));
+    const f = feeFor(amount, m, s);
+    return { method: m, method_label: methodLabel(m), amount_cents: amount, fee_cents: f.fee_cents, fee_label: f.label, fee_note: f.why_none ?? null, total_cents: amount + f.fee_cents };
+  };
+  const tokenBody = z.object({ confirmation_token: z.string().regex(/^ctoken_[A-Za-z0-9]+$/) });
+  app.post('/api/resident/payments/:id/quote', async (req) => {
+    needRole(req, 'resident');
+    const { id } = parse(z.object({ id: uuid }), req.params);
+    const { confirmation_token } = parse(tokenBody, req.body);
+    const { p } = await pendingPayment(req, id);
+    const q = await quoteFor(req, Number(p.amount_cents), confirmation_token);
+    return { ...q, method: undefined };
+  });
+  app.post('/api/resident/payments/:id/confirm', async (req) => {
+    needRole(req, 'resident');
+    const { id } = parse(z.object({ id: uuid }), req.params);
+    const { confirmation_token } = parse(tokenBody, req.body);
+    const { p, sys } = await pendingPayment(req, id);
+    // The fee is worked out again here from the token itself; nothing the browser says about it is trusted.
+    const q = await quoteFor(req, Number(p.amount_cents), confirmation_token);
+    await tx(sys, (c) => c.query('update payments set fee_cents = $2 where id = $1 and status = $3', [id, q.fee_cents, 'pending']));
+    const acct = await tx(sys, async (c) => (await c.query('select account_number from accounts where id = $1', [p.account_id])).rows[0]);
+    let r;
+    try {
+      r = await deps.payments.chargeWithToken!({ paymentId: id, totalCents: q.total_cents, feeCents: q.fee_cents, token: confirmation_token,
+        description: `Utility bill, account ${acct.account_number}${q.fee_cents ? ` (includes ${fmtCents(q.fee_cents)} fee)` : ''}`,
+        customerEmail: req.auth!.email, returnUrl: `${scheme}://${req.publicHost}/pay/done?p=${id}` });
+    } catch (e) {
+      // A declined card: the payment stays open so the resident can try another card.
+      const msg = e instanceof Error ? e.message.replace(/^Stripe error: /, '') : '';
+      throw new HttpError(402, msg && msg.length < 200 ? msg : 'The card or bank did not accept the payment. Nothing was charged.');
+    }
+    // Each try makes its own processor payment; remember the newest one so the page can check on it.
+    await tx(sys, (c) => c.query(`update payments set provider_ref = $2 where id = $1 and status = 'pending'`, [id, r.ref]));
+    if (r.status === 'requires_action') return { status: 'requires_action', client_secret: r.clientSecret };
+    return { status: r.status };
+  });
+
   // After paying in the Payment Element, ask the processor and record the payment right away if it went through.
   app.post('/api/resident/payments/:id/check', async (req) => {
     needRole(req, 'resident');
@@ -607,7 +666,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
         `select s.service_code as code, sv.name, sv.kind, s.enabled, s.quantity from account_services s
          join services sv on sv.city_id = s.city_id and sv.code = s.service_code where s.account_id = $1 order by sv.name`, [id])).rows;
       const meters = (await c.query('select id, service_code, serial, location, active from meters where account_id = $1 order by active desc, serial', [id])).rows;
-      return { account: a, balance_cents: await balance(c, id), ledger, services, meters };
+      return { account: a, balance_cents: await balance(c, id), ledger, services, meters, bills: await billsWithStatus(c, id, 12), arrangement: await currentArrangement(c, id) };
     });
   });
   app.post('/api/staff/accounts', async (req) => {
@@ -982,6 +1041,90 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
       return renderEnvelopes(profile, data);
     });
     return pdf(reply, buf, 'envelopes.pdf');
+  });
+
+  // ======================= payment plans =======================
+  // Email the people linked to an account. Best effort: the screen always shows the answer too.
+  const emailAccount = async (cityId: string, accountId: string, subject: string, text: string) => {
+    const sys: Ctx = { cityId, userId: null, perms: ['accounts.read', 'users.read'] };
+    const to = await tx(sys, async (c) => (await c.query('select u.email from account_links l join users u on u.id = l.user_id where l.account_id = $1', [accountId])).rows);
+    for (const r of to) { try { await deps.email.send(r.email, subject, text); } catch { /* shown on screen anyway */ } }
+  };
+  const planBody = z.object({ installments: z.number().int().min(2).max(24), reason: z.string().min(1).max(1000), first_due: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional() });
+  app.post('/api/resident/accounts/:id/arrangement', async (req) => {
+    needRole(req, 'resident');
+    const { id } = parse(z.object({ id: uuid }), req.params);
+    const b = parse(planBody.omit({ first_due: true }), req.body);
+    return tx(ctxOf(req), (c) => requestArrangement(c, me(req), { account_id: id, installments: b.installments, reason: b.reason, by_staff: false }));
+  });
+  app.post('/api/resident/arrangements/:id/cancel', async (req) => {
+    needRole(req, 'resident');
+    const { id } = parse(z.object({ id: uuid }), req.params);
+    await tx(ctxOf(req), (c) => cancelArrangement(c, me(req), id, false));
+    return { ok: true };
+  });
+  app.post('/api/staff/accounts/:id/arrangement', async (req) => {
+    need(req, 'accounts.manage');
+    const { id } = parse(z.object({ id: uuid }), req.params);
+    const b = parse(planBody, req.body);
+    return tx(ctxOf(req), (c) => requestArrangement(c, me(req), { account_id: id, ...b, by_staff: true }));
+  });
+  app.get('/api/staff/arrangements', async (req) => {
+    need(req, 'accounts.read');
+    const { status } = parse(z.object({ status: z.enum(['pending', 'approved', 'declined', 'cancelled']).default('pending') }), req.query);
+    return tx(ctxOf(req), async (c) => {
+      const rows = (await c.query(
+        `select p.id, p.account_id, p.status, p.total_cents, p.installments, p.first_due, p.reason, p.by_staff, p.created_at, p.requested_by,
+                a.account_number, a.name, a.service_address
+         from payment_arrangements p join accounts a on a.id = p.account_id where p.status = $1 order by p.created_at`, [status])).rows;
+      const out = [];
+      for (const r of rows) out.push({ ...r, total_cents: Number(r.total_cents), first_due: dateText(r.first_due),
+        mine: r.requested_by === me(req), balance_cents: Number(await balance(c, r.account_id)), current: await currentArrangement(c, r.account_id) });
+      return { arrangements: out };
+    });
+  });
+  app.post('/api/staff/arrangements/:id/decide', async (req) => {
+    need(req, 'arrangements.decide');
+    const { id } = parse(z.object({ id: uuid }), req.params);
+    const b = parse(z.object({ decision: z.enum(['approve', 'decline']), note: z.string().max(1000).optional(),
+      installments: z.number().int().min(2).max(24).optional(), first_due: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional() }), req.body);
+    const r = await tx(ctxOf(req), (c) => decideArrangement(c, me(req), id, b));
+    const city = await cityInfo(req);
+    const text = r.status === 'approved'
+      ? `Good news: ${city.name} approved your payment plan.\n\n` + r.schedule!.map((x) => `  ${x.due}: ${fmtCents(x.amount_cents)}`).join('\n') +
+        `\n\nPay each amount by its date and there will be no late charges or shutoff for the bills in this plan. New bills are still due as usual.\n` +
+        (b.note ? `\nNote from the city: ${b.note}\n` : '') + `\nSign in to see your plan: https://${req.publicHost}/`
+      : `${city.name} could not approve your payment plan request.\n\nReason: ${b.note ?? ''}\n\nPlease call City Hall to talk about other options.`;
+    await emailAccount(req.cityId, r.account_id, r.status === 'approved' ? 'Your payment plan was approved' : 'About your payment plan request', text);
+    return { status: r.status, schedule: r.schedule };
+  });
+  app.post('/api/staff/arrangements/:id/cancel', async (req) => {
+    need(req, 'accounts.manage');
+    const { id } = parse(z.object({ id: uuid }), req.params);
+    await tx(ctxOf(req), (c) => cancelArrangement(c, me(req), id, true));
+    return { ok: true };
+  });
+
+  // ======================= fixing a wrong meter reading =======================
+  app.get('/api/staff/meters/:id/readings', async (req) => {
+    need(req, 'accounts.read'); need(req, 'meters.read');
+    const { id } = parse(z.object({ id: uuid }), req.params);
+    return tx(ctxOf(req), async (c) => ({ readings: (await c.query(
+      `select r.id, r.value, r.usage, r.read_at, r.status, r.note, r.billed_run_id is not null as billed,
+              exists (select 1 from reading_corrections k where k.reading_id = r.id and k.status = 'pending') as fix_waiting
+       from readings r where r.meter_id = $1 and r.status = 'accepted' order by r.read_at desc limit 12`, [id])).rows }));
+  });
+  app.post('/api/staff/readings/:id/correction/preview', async (req) => {
+    need(req, 'runs.manage');
+    const { id } = parse(z.object({ id: uuid }), req.params);
+    const { value } = parse(z.object({ value: z.number().min(0).max(1e12) }), req.body);
+    return tx(ctxOf(req), (c) => previewCorrection(c, id, value));
+  });
+  app.post('/api/staff/readings/:id/correction', async (req) => {
+    need(req, 'runs.manage');
+    const { id } = parse(z.object({ id: uuid }), req.params);
+    const { value, reason } = parse(z.object({ value: z.number().min(0).max(1e12), reason: z.string().min(1).max(800) }), req.body);
+    return tx(ctxOf(req), (c) => requestCorrection(c, me(req), id, value, reason));
   });
 
   // ======================= payment processor webhook =======================

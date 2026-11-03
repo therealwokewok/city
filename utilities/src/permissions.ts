@@ -15,7 +15,7 @@ export const ROLE_PERMS: Record<Role, string[]> = {
     'adjustments.request', 'approvals.read', 'charges.create', 'disputes.review', 'requests.review', 'print.read', 'print.run'],
   cashier: ['accounts.read', 'payments.record', 'adjustments.request', 'approvals.read'],
   meter_reader: ['meters.read', 'readings.submit', 'workorders.field'],
-  approver: ['accounts.read', 'runs.read', 'runs.approve', 'approvals.read', 'approvals.decide'],
+  approver: ['accounts.read', 'runs.read', 'runs.approve', 'approvals.read', 'approvals.decide', 'arrangements.decide'],
   auditor: ['accounts.read', 'runs.read', 'approvals.read', 'audit.read', 'users.read'],
   customer_service: ['accounts.read', 'accounts.manage', 'adjustments.request', 'approvals.read', 'charges.create',
     'disputes.review', 'requests.review'],

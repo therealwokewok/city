@@ -4,6 +4,61 @@ import { mountPaymentElement } from '../stripe.js';
 
 const period = (b) => (b.period_start ? new Date(+b.period_end.slice(0, 4), +b.period_end.slice(5, 7) - 1, 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' }) : plainDate(b.posted_at));
 const owedText = (c) => (c > 0 ? 'You owe' : c < 0 ? 'Your credit' : 'Your balance');
+/** "Paid", "Partly paid, $12.00 left" or "Not paid yet", for one bill. */
+export const billStatus = (b) => b.pay_status === 'paid' ? h('span', { class: 'status ok' }, '✓ Paid')
+  : b.pay_status === 'partly_paid' ? h('span', { class: 'status warn' }, `Partly paid. ${money(b.left_cents)} left`)
+  : h('span', { class: 'status warn' }, 'Not paid yet');
+const planRows = (schedule, next) => h('table', { class: 'tbl' },
+  h('thead', {}, h('tr', {}, h('th', {}, 'Pay by'), h('th', {}, 'Amount'))),
+  h('tbody', {}, schedule.map((x) => h('tr', {}, h('td', { 'data-label': 'Pay by' }, plainDate(x.due), next && next.due === x.due ? h('strong', {}, ' (next)') : null), h('td', { 'data-label': 'Amount' }, money(x.amount_cents))))));
+
+/** Payment plan: ask for one, see where it stands, or take back a request that is still waiting. */
+function planSection(id, d) {
+  const p = d.arrangement;
+  const box = h('section', { class: 'card', 'aria-labelledby': 'plan-h' }, h('h2', { id: 'plan-h' }, 'Payment plan'));
+  if (p && p.status === 'approved' && p.state !== 'paid_off') {
+    box.append(
+      p.state === 'behind' ? h('p', { class: 'notice warn' }, `You are behind on your plan. Please pay ${money(p.next.amount_cents)} as soon as you can, or call City Hall.`)
+        : h('p', { class: 'notice' }, '✓ Your plan is approved and you are keeping up with it.'),
+      p.next ? h('p', {}, `Next payment: ${money(p.next.amount_cents)} by ${plainDate(p.next.due)}.`) : null,
+      planRows(p.schedule, p.next),
+      h('p', { class: 'hint' }, 'Any payment you make counts toward the plan. New bills are still due on their own dates.'),
+      p.next ? h('div', { class: 'actions' }, h('a', { class: 'btn', href: `#/pay/${id}` }, `Pay ${money(p.next.amount_cents)} now`)) : null);
+    return box;
+  }
+  if (p && p.status === 'pending') {
+    const take = h('button', { class: 'btn secondary', type: 'button' }, 'Take back my request');
+    const msg = h('div', { role: 'status' });
+    take.addEventListener('click', async () => {
+      if (!(await confirmDialog({ title: 'Take back your request?', body: 'The city will not look at it. You can ask again later.', yes: 'Yes, take it back', no: 'No, keep it' }))) return;
+      try { await busy(take, 'One moment...', () => api('POST', `/api/resident/arrangements/${p.id}/cancel`, {})); location.reload(); } catch (e) { showError(msg, e.message); }
+    });
+    box.append(h('p', {}, h('span', { class: 'status warn' }, 'Waiting for the city')),
+      h('p', {}, `You asked to pay ${money(p.total_cents)} in ${p.installments} monthly payments. Someone at City Hall will look at it and email you.`),
+      planRows(p.schedule), msg, h('div', { class: 'actions' }, take));
+    return box;
+  }
+  if (p && p.status === 'declined') box.append(h('p', { class: 'notice warn' }, `The city could not approve your last request. ${p.decision_note || ''}`));
+  if (d.balance_cents < 200) { box.append(h('p', { class: 'muted' }, 'If you ever need more time to pay a bill, you can ask for a payment plan here.')); return box; }
+  const sel = h('select', { id: 'n' }, [2, 3, 4, 5, 6, 9, 12].filter((n) => d.balance_cents >= n * 100).map((n) =>
+    h('option', { value: String(n) }, `${n} payments of about ${money(Math.ceil(d.balance_cents / n))}`)));
+  const form = h('form', { novalidate: true, hidden: true },
+    h('p', {}, `You owe ${money(d.balance_cents)}. Choose how many monthly payments you would like. City Hall decides, and will email you.`),
+    h('div', { class: 'field' }, h('label', { for: 'n' }, 'Number of monthly payments'), sel),
+    field({ id: 'why', label: 'Why do you need more time?', hint: 'A sentence or two is fine. For example: "Medical bills this month."', tag: 'textarea', maxlength: 1000, required: true }),
+    h('div', { class: 'actions' }, h('button', { class: 'btn', type: 'submit' }, 'Send my request to the city')));
+  const ask = h('button', { class: 'btn secondary', type: 'button', 'aria-expanded': 'false' }, 'Ask for a payment plan');
+  ask.addEventListener('click', () => { form.hidden = false; ask.hidden = true; form.querySelector('select').focus(); });
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const reason = form.querySelector('#why').value.trim();
+    if (!reason) { showError(form, 'Please tell us a little about why you need more time.'); return; }
+    try { await busy(form.querySelector('button'), 'Sending...', () => api('POST', `/api/resident/accounts/${id}/arrangement`, { installments: Number(sel.value), reason })); location.reload(); }
+    catch (err) { showError(form, err.message); }
+  });
+  box.append(h('p', {}, 'Need more time to pay? You can ask the city to let you pay what you owe in smaller monthly amounts.'), h('div', { class: 'actions' }, ask), form);
+  return box;
+}
 
 export async function home() {
   const { accounts } = await api('GET', '/api/resident/accounts');
@@ -102,7 +157,9 @@ export async function account(id) {
     d.bills.length ? h('ul', { class: 'list' }, d.bills.map((b) => h('li', {},
       h('div', { class: 'row2' }, h('strong', {}, period(b)), h('span', { class: 'amount' }, money(b.total_cents))),
       h('p', { class: 'muted' }, `Due ${plainDate(b.due_date)}`),
+      h('p', {}, billStatus(b)),
       h('a', { href: `#/bill/${id}/${b.id}` }, 'Open this bill')))) : h('p', { class: 'muted' }, 'No bills yet.'),
+    planSection(id, d),
     h('h2', {}, 'Recent activity'),
     d.ledger.length ? h('ul', { class: 'list' }, d.ledger.map((l) => h('li', {},
       h('div', { class: 'row2' }, h('span', {}, kindName(l.kind)), h('span', { class: 'amount' + (l.amount_cents < 0 ? ' credit' : '') }, money(l.amount_cents))),
@@ -137,6 +194,7 @@ export async function bill(accountId, billId) {
     h('a', { href: `#/account/${accountId}` }, '← Back'),
     h('h1', {}, `Bill for ${period(b)}`),
     h('p', {}, `Due ${plainDate(b.due_date)}`),
+    h('p', {}, billStatus(b)),
     h('table', { class: 'bill' },
       h('caption', {}, 'What you were charged for'),
       h('thead', {}, h('tr', {}, h('th', { scope: 'col' }, 'Charge'), h('th', { scope: 'col', class: 'amt' }, 'Amount'))),
@@ -151,22 +209,27 @@ export async function pay(id) {
   const owed = Math.max(d.balance_cents, 0);
   const full = h('input', { type: 'radio', name: 'amt', id: 'amt-full', value: 'full', checked: true });
   const other = h('input', { type: 'radio', name: 'amt', id: 'amt-other', value: 'other' });
+  const planNext = d.arrangement?.status === 'approved' && d.arrangement.next ? Math.min(d.arrangement.next.amount_cents, owed) : 0;
+  const plan = h('input', { type: 'radio', name: 'amt', id: 'amt-plan', value: 'plan' });
+  if (planNext >= 100) { plan.checked = true; full.checked = false; }
   const custom = h('input', { type: 'text', inputmode: 'decimal', id: 'custom', autocomplete: 'off', disabled: true, 'aria-describedby': 'custom-hint' });
   const customField = h('div', { class: 'field', hidden: true }, h('label', { for: 'custom' }, 'Amount in dollars'), h('p', { class: 'hint', id: 'custom-hint' }, 'For example 25.00. The smallest payment is $1.00.'), custom);
   const sync = () => { custom.disabled = !other.checked; customField.hidden = !other.checked; if (other.checked) custom.focus(); };
-  full.addEventListener('change', sync); other.addEventListener('change', sync);
+  full.addEventListener('change', sync); other.addEventListener('change', sync); plan.addEventListener('change', sync);
   const form = h('form', { novalidate: true },
     h('p', { class: 'muted' }, d.account.service_address),
+    planNext >= 100 ? h('label', { class: 'radio-card', for: 'amt-plan' }, plan, h('span', {}, 'Pay my payment plan amount: ', h('strong', {}, money(planNext)))) : null,
     owed ? h('label', { class: 'radio-card', for: 'amt-full' }, full, h('span', {}, 'Pay everything I owe: ', h('strong', {}, money(owed)))) : null,
     h('label', { class: 'radio-card', for: 'amt-other' }, owed ? other : (other.checked = true, other), h('span', {}, 'Pay a different amount')),
     customField,
+    h('p', { class: 'hint' }, 'You can pay part of what you owe. Whatever is left stays on your account.'),
     h('p', { class: 'hint' }, 'Next, you type your card or bank account right here. Those details go straight to Stripe, the city\'s payment company. The city never sees or stores them.'),
     h('div', { class: 'actions' }, h('button', { class: 'btn', type: 'submit' }, 'Continue'), h('a', { class: 'btn secondary', href: '#/' }, 'Cancel')));
   const host = h('div');
   if (!owed) { other.checked = true; sync(); }
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
-    let cents = owed;
+    let cents = plan.checked ? planNext : owed;
     if (other.checked || !owed) {
       const v = custom.value.replace(/[$,\s]/g, '');
       if (!/^\d+(\.\d{1,2})?$/.test(v)) { showError(form, 'Please type an amount like 25.00.'); custom.focus(); return; }
@@ -176,7 +239,7 @@ export async function pay(id) {
     try {
       const r = await busy(form.querySelector('button[type=submit]'), 'One moment...', () => api('POST', `/api/resident/accounts/${id}/pay`, { amount_cents: cents }));
       if (r.url) { location.assign(r.url); return; } // the demo's pretend processor has no card form
-      await cardStep(host, form, r, cents);
+      await (r.deferred ? feeStep(host, form, r, cents) : cardStep(host, form, r, cents));
     } catch (err) { showError(form, err.message); }
   });
   return h('div', {}, h('a', { href: '#/' }, '← Back'), h('h1', {}, 'Pay your bill'), form, host);
@@ -206,6 +269,69 @@ async function cardStep(host, form, r, cents) {
     if (res.error) { showError(msg, res.error.message || 'That did not go through. Nothing was charged.'); return; }
     const done = await api('POST', `/api/resident/payments/${r.payment_id}/check`, {}).catch(() => ({ status: 'processing' }));
     fill(host.parentNode, await payResult(done.status === 'failed' ? 'failed' : 'done', r.payment_id, done.status));
+  });
+}
+
+// Step 2 when fees may apply: type the card or bank, then see the exact total (bill plus any fee), then pay.
+async function feeStep(host, form, r, cents) {
+  const fields = h('div', { class: 'pe-host', id: 'payment-element' });
+  const msg = h('div', { role: 'alert' });
+  const review = h('div', { 'aria-live': 'polite' });
+  const next = h('button', { class: 'btn', type: 'submit' }, 'Review my payment');
+  const back = h('button', { class: 'btn secondary', type: 'button' }, 'Change the amount');
+  const card = h('form', { class: 'card', novalidate: true }, h('h2', {}, `Paying ${money(cents)} on your bill`),
+    r.fee_notice ? h('p', { class: 'notice warn' }, r.fee_notice) : null,
+    h('p', { class: 'hint' }, 'Type your card, or choose "US bank account" to pay from checking or savings. These boxes are run by Stripe, the city\'s payment company, so your details go straight to them. The city never sees or keeps them.'),
+    fields, msg, review, h('div', { class: 'actions' }, next, back));
+  form.hidden = true;
+  const loadingNote = h('p', { class: 'loading' }, 'Loading the secure payment form...');
+  fields.before(loadingNote); next.disabled = true;
+  fill(host, card);
+  card.querySelector('h2').setAttribute('tabindex', '-1'); card.querySelector('h2').focus();
+  const { stripe, elements, element } = await mountPaymentElement(fields, { publishableKey: r.publishable_key, amount: cents }).catch((e) => { form.hidden = false; fill(host); throw e; });
+  loadingNote.remove(); next.disabled = false;
+  back.addEventListener('click', () => { fill(host); form.hidden = false; });
+  // Changing the card or bank means the total has to be checked again.
+  element.on('change', () => { if (review.firstChild) { fill(review); next.hidden = false; } });
+  card.addEventListener('submit', async (e) => {
+    e.preventDefault(); fill(msg);
+    const quoted = await busy(next, 'Checking...', async () => {
+      const sub = await elements.submit();
+      if (sub.error) return { error: sub.error };
+      const t = await stripe.createConfirmationToken({ elements, params: { return_url: r.return_url } });
+      if (t.error) return { error: t.error };
+      try { return { token: t.confirmationToken.id, q: await api('POST', `/api/resident/payments/${r.payment_id}/quote`, { confirmation_token: t.confirmationToken.id }) }; }
+      catch (err) { return { error: err }; }
+    });
+    if (quoted.error) { showError(msg, quoted.error.message || 'Please check the card or bank details.'); return; }
+    const { q, token } = quoted;
+    const payBtn = h('button', { class: 'btn', type: 'button' }, `Pay ${money(q.total_cents)}`);
+    fill(review, h('section', { class: 'card', 'aria-labelledby': 'rev-h' }, h('h3', { id: 'rev-h', tabindex: '-1' }, 'Check your payment'),
+      h('p', {}, `Paying with: ${q.method_label}`),
+      h('table', { class: 'bill' }, h('tbody', {},
+        h('tr', {}, h('td', {}, 'Bill payment'), h('td', { class: 'amt' }, money(q.amount_cents))),
+        q.fee_cents ? h('tr', {}, h('td', {}, q.fee_label), h('td', { class: 'amt' }, money(q.fee_cents))) : null),
+        h('tfoot', {}, h('tr', {}, h('th', { scope: 'row' }, 'Total charged'), h('td', { class: 'amt' }, money(q.total_cents))))),
+      q.fee_cents ? h('p', { class: 'hint' }, `The fee covers what the payment company charges the city. Only ${money(q.amount_cents)} goes toward your bill.`) : q.fee_note ? h('p', { class: 'hint' }, q.fee_note) : null,
+      h('div', { class: 'actions' }, payBtn)));
+    next.hidden = true;
+    review.querySelector('h3').focus();
+    payBtn.addEventListener('click', async () => {
+      fill(msg);
+      const res = await busy(payBtn, 'Paying...', async () => {
+        try {
+          let c = await api('POST', `/api/resident/payments/${r.payment_id}/confirm`, { confirmation_token: token });
+          if (c.status === 'requires_action') {
+            const a = await stripe.handleNextAction({ clientSecret: c.client_secret });
+            if (a.error) return { error: a.error };
+          }
+          return { ok: true };
+        } catch (err) { return { error: err }; }
+      });
+      if (res.error) { showError(msg, res.error.message || 'That did not go through. Nothing was charged.'); fill(review); next.hidden = false; return; }
+      const done = await api('POST', `/api/resident/payments/${r.payment_id}/check`, {}).catch(() => ({ status: 'processing' }));
+      fill(host.parentNode, await payResult(done.status === 'failed' ? 'failed' : 'done', r.payment_id, done.status));
+    });
   });
 }
 

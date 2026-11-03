@@ -5,7 +5,7 @@ import { defineConfig, devices } from '@playwright/test';
 const chromePath = process.env.CHROME_PATH; // optional: use an already-installed Chrome
 const launch = chromePath ? { launchOptions: { executablePath: chromePath } } : {};
 
-const projects = [
+const projects: { name: string; use: Record<string, unknown> }[] = [
   { name: 'chrome-desktop', use: { ...devices['Desktop Chrome'], ...launch } },
   { name: 'chrome-phone', use: { ...devices['Pixel 7'], ...launch } },
 ];
@@ -17,20 +17,23 @@ if (process.env.ALL_BROWSERS) {
     { name: 'edge-desktop', use: { ...devices['Desktop Edge'], channel: 'msedge' } },
   );
 }
+// Each browser gets its own copy of the demo server and database, so one browser's tests never see another's changes.
+const servers = projects.map((p, i) => {
+  const port = 4173 + i;
+  p.use = { ...p.use, baseURL: `http://localhost:${port}` };
+  return {
+    command: 'npx tsx e2e/server.ts', url: `http://127.0.0.1:${port}/healthz`, timeout: 60_000, reuseExistingServer: false,
+    env: { PORT: String(port), E2E_DB: i === 0 ? 'utilities_e2e' : `utilities_e2e_${i}` },
+  };
+});
 
 export default defineConfig({
   testDir: 'e2e',
   testMatch: '**/*.spec.ts',
-  workers: 1,               // one shared demo database
+  workers: 1,               // tests in one browser share that browser's demo database
   retries: 0,
   timeout: 45_000,
-  use: { baseURL: 'http://localhost:4173', trace: 'retain-on-failure', screenshot: 'only-on-failure' },
-  webServer: {
-    command: 'npx tsx e2e/server.ts',
-    url: 'http://127.0.0.1:4173/healthz',
-    timeout: 60_000,
-    reuseExistingServer: false,
-    env: { PORT: '4173' },
-  },
+  use: { trace: 'retain-on-failure', screenshot: 'only-on-failure' },
+  webServer: servers,
   projects,
 });

@@ -32,6 +32,13 @@ export interface PaymentsAdapter {
   name: string;
   /** Public key the browser uses to show the processor's fields. Empty for the fake processor. */
   publishableKey?: string;
+  /**
+   * Two-step payments for fees: the browser turns what was typed into a one-time token, we look at it (card or bank,
+   * credit or debit) to work out any fee, and then charge the total. Missing for processors that cannot do this.
+   */
+  inspectToken?(token: string): Promise<import('../fees.js').FeeMethod>;
+  chargeWithToken?(r: { paymentId: string; totalCents: number; feeCents: number; token: string; description: string; customerEmail?: string; returnUrl: string }):
+    Promise<{ ref: string; status: string; clientSecret?: string }>;
   /** Finds the processor's reference for one of our payments when we never saved it. */
   findPaymentRef?(paymentId: string): Promise<string | undefined>;
   /** false for test keys: nothing real moves, so a demo may use them. */
@@ -74,6 +81,29 @@ export class StripeAdapter implements PaymentsAdapter {
       : j.status === 'canceled' ? 'failed' : 'open';
     return { status, amountCents: Number(j.amount_received || j.amount), paymentId: j.metadata?.payment_id,
       method: j.payment_method?.type === 'us_bank_account' ? 'ach' : 'card' };
+  }
+
+  async inspectToken(token: string): Promise<import('../fees.js').FeeMethod> {
+    if (!/^ctoken_[A-Za-z0-9]+$/.test(token)) throw new Error('bad token');
+    const t = await this.stripe('GET', `confirmation_tokens/${token}`);
+    const pm = t.payment_method_preview ?? {};
+    if (pm.type === 'us_bank_account') return { type: 'ach', bank: pm.us_bank_account?.bank_name, last4: pm.us_bank_account?.last4 };
+    if (pm.type === 'card' || pm.type === 'link') {
+      const f = pm.card?.funding;
+      return { type: 'card', funding: f === 'credit' || f === 'debit' || f === 'prepaid' ? f : 'unknown', brand: pm.card?.brand, last4: pm.card?.last4 };
+    }
+    throw new Error('That way of paying is not accepted');
+  }
+
+  async chargeWithToken(r: { paymentId: string; totalCents: number; feeCents: number; token: string; description: string; customerEmail?: string; returnUrl: string }) {
+    const body = new URLSearchParams({
+      amount: String(r.totalCents), currency: 'usd', description: r.description, confirm: 'true', confirmation_token: r.token,
+      'payment_method_types[0]': 'card', 'payment_method_types[1]': 'us_bank_account', return_url: r.returnUrl,
+      'metadata[payment_id]': r.paymentId, 'metadata[fee_cents]': String(r.feeCents),
+    });
+    if (r.customerEmail) body.set('receipt_email', r.customerEmail);
+    const j = await this.stripe('POST', 'payment_intents', body, `pay-${r.paymentId}-${r.totalCents}-${r.token}`);
+    return { ref: j.id as string, status: j.status as string, clientSecret: j.client_secret as string };
   }
 
   async findPaymentRef(paymentId: string): Promise<string | undefined> {

@@ -78,7 +78,8 @@ test('staff: work the queue, and the resident sees the answers', async ({ page }
   await expect(main(page).getByText('Marked done.')).toBeVisible();
   await expect(main(page).getByText('Nothing waiting.')).toBeVisible();
   await page.getByRole('button', { name: 'Done' }).click();
-  await expect(page.getByRole('region', { name: /Move out: Sam Sample/ })).toContainText('Final read is set');
+  // both browsers share one test server, so the finished list can hold the other browser's request too
+  await expect(page.getByRole('region', { name: /Move out: Sam Sample/ }).filter({ hasText: 'Final read is set' }).first()).toBeVisible();
 });
 
 test('resident sees what staff answered', async ({ page }, info) => {

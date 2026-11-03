@@ -1,4 +1,5 @@
 import type pg from 'pg';
+import { fmt } from '../money.js';
 import { audit, elevate } from '../db.js';
 import { PaymentEvent } from '../adapters/payments.js';
 import { bad, notFound, requirePerm } from './accounts.js';
@@ -69,14 +70,16 @@ export async function settleFromEvent(c: pg.PoolClient, provider: string, ev: Pa
     await audit(c, null, 'payment.failed', { payment_id: p.id });
     return 'failed';
   }
-  if (ev.amountCents !== p.amount_cents) {
-    await audit(c, null, 'payment.amount_mismatch', { payment_id: p.id, expected: p.amount_cents, got: ev.amountCents ?? null });
+  // The processor collected the bill amount plus any fee; only the bill amount is credited to the account.
+  const expected = Number(p.amount_cents) + Number(p.fee_cents ?? 0);
+  if (ev.amountCents !== expected) {
+    await audit(c, null, 'payment.amount_mismatch', { payment_id: p.id, expected, got: ev.amountCents ?? null });
     return 'amount_mismatch';
   }
   const le = await c.query(
     `insert into ledger_entries (city_id, account_id, kind, amount_cents, ref_type, ref_id, memo)
      values (app_city(), $1, 'payment', $2, 'payment', $3, $4) returning id`,
-    [p.account_id, -p.amount_cents, p.id, `Online payment (${ev.method ?? 'card'})`]);
+    [p.account_id, -p.amount_cents, p.id, `Online payment (${ev.method ?? 'card'})${Number(p.fee_cents) ? `, plus ${fmt(Number(p.fee_cents))} fee paid` : ''}`]);
   await c.query(
     `update payments set status = 'succeeded', method = $2, completed_at = now(), ledger_entry_id = $3 where id = $1`,
     [p.id, ev.method ?? 'card', le.rows[0].id]);

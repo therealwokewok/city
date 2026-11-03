@@ -42,16 +42,18 @@ test('admin: settings save needs the safety check and are remembered', async ({ 
 });
 
 test('admin: add a person and give them a role', async ({ page }, info) => {
+  // both browsers share one test server, so each adds its own person
+  const who = info.project.name.includes('phone') ? 'Dana Phone' : 'Dana Desk';
   await signIn(page, 'admin@example.test');
   await openAdmin(page, /People and roles/);
-  await page.getByLabel('Full name').fill('Dana Test');
-  await page.getByLabel('Email address').fill('dana@example.test');
+  await page.getByLabel('Full name').fill(who);
+  await page.getByLabel('Email address').fill(`${who.replace(' ', '.').toLowerCase()}@example.test`);
   await page.getByRole('button', { name: 'Add this person' }).click();
-  await expect(page.locator('#main').getByText('Dana Test was added.')).toBeVisible();
-  const dana = page.getByRole('region', { name: 'Dana Test' });
+  await expect(page.locator('#main').getByText(`${who} was added.`)).toBeVisible();
+  const dana = page.getByRole('region', { name: who });
   await dana.getByLabel(/^Cashier/).check();
   await safetyCheck(page, 'admin@example.test');
-  await expect(page.locator('#main').getByText('Cashier added to Dana Test.')).toBeVisible();
+  await expect(page.locator('#main').getByText(`Cashier added to ${who}.`)).toBeVisible();
   await expect(dana).toContainText('Cashier');
   // the administrator's own row has no role boxes
   await expect(page.getByRole('region', { name: 'Demo Admin' })).toContainText('You cannot change your own roles');
