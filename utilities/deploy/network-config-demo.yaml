@@ -1,0 +1,11 @@
+# OVH additional IPs are single addresses reached through the server's own gateway.
+# Change the MAC (the virtual MAC OVH gave this IP), the address and the gateway for your own server.
+network:
+  version: 2
+  ethernets:
+    eth0:
+      match: { macaddress: "02:00:00:e7:db:3b" }
+      set-name: eth0
+      addresses: ["51.81.14.164/32"]
+      routes: [{ to: default, via: 15.204.141.254, on-link: true }]
+      nameservers: { addresses: [1.1.1.1, 8.8.8.8] }

@@ -1,5 +1,6 @@
 #cloud-config
 # Builds a demo server on a fresh Ubuntu cloud image. Replace the three values marked CHANGE before use.
+ssh_pwauth: false
 package_update: true
 packages: [git, ca-certificates, curl, ufw]
 write_files:
