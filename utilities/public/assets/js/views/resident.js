@@ -1,5 +1,6 @@
 import { h, field, money, plainDate, plainNote, showError, busy, confirmDialog, announce, fill } from '../dom.js';
 import { api, state } from '../api.js';
+import { mountPaymentElement } from '../stripe.js';
 
 const period = (b) => (b.period_start ? new Date(+b.period_end.slice(0, 4), +b.period_end.slice(5, 7) - 1, 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' }) : plainDate(b.posted_at));
 const owedText = (c) => (c > 0 ? 'You owe' : c < 0 ? 'Your credit' : 'Your balance');
@@ -63,13 +64,25 @@ export async function account(id) {
         location.reload();
       } else {
         const r = await busy(autoBtn, 'One moment...', () => api('POST', `/api/resident/accounts/${id}/autopay/start`, {}));
-        location.href = r.url;
+        if (r.url) { location.href = r.url; return; } // the demo's pretend processor
+        const fields = h('div', { class: 'pe-host' }); const msg = h('div', { role: 'alert' });
+        const save = h('button', { class: 'btn', type: 'submit' }, 'Save and turn on autopay');
+        const f = h('form', { novalidate: true }, h('p', {}, 'Type the card or bank account to use. Stripe keeps it, not the city.'), fields, msg, h('div', { class: 'actions' }, save));
+        autoBtn.hidden = true; fill(autoMsg, h('p', { class: 'loading' }, 'Loading the secure form...'));
+        const { stripe, elements } = await mountPaymentElement(fields, { publishableKey: r.publishable_key, clientSecret: r.client_secret });
+        fill(autoMsg, f);
+        f.addEventListener('submit', async (ev) => {
+          ev.preventDefault(); fill(msg);
+          const res = await busy(save, 'Saving...', () => stripe.confirmSetup({ elements, redirect: 'if_required', confirmParams: { return_url: r.return_url } }));
+          if (res.error) { showError(msg, res.error.message || 'That was not saved. Please try again.'); return; }
+          try { await api('POST', `/api/resident/accounts/${id}/autopay/confirm`, { setup_ref: r.setup_ref }); location.reload(); } catch (err) { showError(msg, err.message); }
+        });
       }
     } catch (err) { showError(autoMsg, err.message); }
   });
   const autoSection = h('section', { class: 'card', 'aria-labelledby': 'autopay-h' }, h('h2', { id: 'autopay-h' }, 'Autopay'),
     ap.on ? h('p', {}, `On. We take your payment on the due date from: ${ap.label}.`) : h('p', {}, 'Let us take your payment on the due date so you never pay late.'),
-    h('p', { class: 'hint' }, 'You enter your card or bank details on our payment company\'s secure page. City Hall never sees or keeps them. You can turn this off at any time.'),
+    h('p', { class: 'hint' }, 'You type your card or bank details into Stripe\'s secure boxes on this page. Stripe is the city\'s payment company; City Hall never sees or keeps your details. You can turn this off at any time.'),
     autoMsg, h('div', { class: 'actions' }, autoBtn));
   const a = d.account;
   const toggle = h('input', { type: 'checkbox', id: 'paperless', checked: a.paperless ? true : null });
@@ -146,8 +159,9 @@ export async function pay(id) {
     owed ? h('label', { class: 'radio-card', for: 'amt-full' }, full, h('span', {}, 'Pay everything I owe: ', h('strong', {}, money(owed)))) : null,
     h('label', { class: 'radio-card', for: 'amt-other' }, owed ? other : (other.checked = true, other), h('span', {}, 'Pay a different amount')),
     h('div', { class: 'field' }, h('label', { for: 'custom' }, 'Amount in dollars'), h('p', { class: 'hint', id: 'custom-hint' }, 'For example 25.00. The smallest payment is $1.00.'), custom),
-    h('div', { class: 'notice' }, "You'll go to a secure payment page run by Stripe. Your card or bank details go straight to them. The city never sees or stores them."),
-    h('div', { class: 'actions' }, h('button', { class: 'btn', type: 'submit' }, 'Continue to secure payment'), h('a', { class: 'btn secondary', href: '#/' }, 'Cancel')));
+    h('p', { class: 'hint' }, 'Next, you type your card or bank account right here. Those details go straight to Stripe, the city\'s payment company. The city never sees or stores them.'),
+    h('div', { class: 'actions' }, h('button', { class: 'btn', type: 'submit' }, 'Continue'), h('a', { class: 'btn secondary', href: '#/' }, 'Cancel')));
+  const host = h('div');
   if (!owed) { other.checked = true; sync(); }
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
@@ -158,24 +172,57 @@ export async function pay(id) {
       cents = Math.round(parseFloat(v) * 100);
     }
     if (cents < 100 || cents > 1000000) { showError(form, 'You can pay between $1.00 and $10,000.00 at a time.'); custom.focus(); return; }
-    const ok = await confirmDialog({ title: `Pay ${money(cents)}?`, body: 'You will be taken to the secure payment page next.', yes: `Yes, pay ${money(cents)}`, no: 'No, go back' });
-    if (!ok) return;
     try {
-      const r = await busy(form.querySelector('button[type=submit]'), 'Opening secure page...', () => api('POST', `/api/resident/accounts/${id}/pay`, { amount_cents: cents }));
-      location.assign(r.url);
+      const r = await busy(form.querySelector('button[type=submit]'), 'One moment...', () => api('POST', `/api/resident/accounts/${id}/pay`, { amount_cents: cents }));
+      if (r.url) { location.assign(r.url); return; } // the demo's pretend processor has no card form
+      await cardStep(host, form, r, cents);
     } catch (err) { showError(form, err.message); }
   });
-  return h('div', {}, h('a', { href: '#/' }, '← Back'), h('h1', {}, 'Pay your bill'), form);
+  return h('div', {}, h('a', { href: '#/' }, '← Back'), h('h1', {}, 'Pay your bill'), form, host);
 }
 
-export async function payResult(result) {
+// Step 2: Stripe's card and bank fields, right here on the page.
+async function cardStep(host, form, r, cents) {
+  const fields = h('div', { class: 'pe-host', id: 'payment-element' });
+  const msg = h('div', { role: 'alert' });
+  const payBtn = h('button', { class: 'btn', type: 'submit' }, `Pay ${money(cents)}`);
+  const back = h('button', { class: 'btn secondary', type: 'button' }, 'Change the amount');
+  const card = h('form', { class: 'card', novalidate: true }, h('h2', {}, `Paying ${money(cents)}`),
+    h('p', { class: 'hint' }, 'Type your card, or choose "US bank account" to pay from checking or savings. These boxes are run by Stripe, the city\'s payment company, so your details go straight to them. The city never sees or keeps them.'),
+    fields, msg, h('div', { class: 'actions' }, payBtn, back));
+  form.hidden = true;
+  fill(host, h('p', { class: 'loading' }, 'Loading the secure payment form...'));
+  const { stripe, elements } = await mountPaymentElement(fields, { publishableKey: r.publishable_key, clientSecret: r.client_secret }).catch((e) => { form.hidden = false; fill(host); throw e; });
+  fill(host, card);
+  card.querySelector('h2').setAttribute('tabindex', '-1'); card.querySelector('h2').focus();
+  back.addEventListener('click', () => { fill(host); form.hidden = false; });
+  card.addEventListener('submit', async (e) => {
+    e.preventDefault(); fill(msg);
+    const res = await busy(payBtn, 'Paying...', () => stripe.confirmPayment({ elements, redirect: 'if_required', confirmParams: { return_url: r.return_url } }));
+    if (res.error) { showError(msg, res.error.message || 'That did not go through. Nothing was charged.'); return; }
+    const done = await api('POST', `/api/resident/payments/${r.payment_id}/check`, {}).catch(() => ({ status: 'processing' }));
+    fill(host.parentNode, await payResult(done.status === 'failed' ? 'failed' : 'done', r.payment_id, done.status));
+  });
+}
+
+export async function payResult(result, p, status) {
+  // Coming back from a bank or card check on another page: ask the processor how it went.
+  if (result === 'done' && p && !status) { status = (await api('POST', `/api/resident/payments/${p}/check`, {}).catch(() => ({}))).status; }
+  if (result === 'failed' || status === 'failed') {
+    return h('div', {}, h('h1', {}, 'Payment not made'), h('p', { class: 'error' }, 'The card or bank turned the payment down. No money was taken.'), h('a', { class: 'btn', href: '#/' }, 'Back to my bills'));
+  }
+  if (status === 'processing') {
+    return h('div', {}, h('h1', {}, 'Thank you'),
+      h('p', { class: 'notice' }, '✓ Your bank payment has started. Bank payments take a few business days to finish, and your account will show it then.'),
+      h('a', { class: 'btn', href: '#/' }, 'Back to my bills'));
+  }
   if (result === 'cancelled') {
     return h('div', {}, h('h1', {}, 'Payment not made'), h('p', {}, 'No money was taken. You can try again whenever you are ready.'), h('a', { class: 'btn', href: '#/' }, 'Back to my bills'));
   }
   return h('div', {},
     h('h1', {}, 'Thank you'),
-    h('p', { class: 'notice' }, '✓ Your payment went through. It can take a minute or two to show on your account. If you paid from a bank account, it can take a few days to finish.'),
-    h('p', {}, 'You will get a receipt by email from the payment company.'),
+    h('p', { class: 'notice' }, status === 'completed' ? '✓ Your payment went through and is on your account.' : '✓ Your payment went through. It can take a minute to show on your account.'),
+    h('p', {}, 'You will get a receipt by email from Stripe, the city\'s payment company.'),
     h('a', { class: 'btn', href: '#/' }, 'Back to my bills'));
 }
 

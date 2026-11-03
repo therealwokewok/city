@@ -80,9 +80,9 @@ export function validateSettings(input: Record<string, unknown>): Partial<CitySe
   return out as Partial<CitySettings>;
 }
 
-/** While a city is in demo mode, real money must not move. The fake processor used for trying things out is fine. */
-export async function assertMoneyAllowed(c: pg.PoolClient, processorName: string) {
-  if (processorName !== 'fake' && (await loadSettings(c)).demo_mode) {
+/** While a city is in demo mode, real money must not move. The fake processor and Stripe test keys are fine. */
+export async function assertMoneyAllowed(c: pg.PoolClient, processor: { name: string; live?: boolean }) {
+  if (processor.name !== 'fake' && processor.live !== false && (await loadSettings(c)).demo_mode) {
     const e: any = new Error('Payments are turned off while this is a demo. No one has been charged.'); e.status = 409; throw e;
   }
 }

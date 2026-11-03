@@ -31,8 +31,10 @@ describe('demo mode', () => {
   });
   it('refuses real payment processors but lets the fake one through', async () => {
     const ctx = { cityId: S.cityId, userId: null, perms: [] };
-    await expect(tx(ctx, (c) => assertMoneyAllowed(c, 'stripe'))).rejects.toThrow(/turned off while this is a demo/);
-    await expect(tx(ctx, (c) => assertMoneyAllowed(c, 'fake'))).resolves.toBeUndefined();
+    await expect(tx(ctx, (c) => assertMoneyAllowed(c, { name: 'stripe' }))).rejects.toThrow(/turned off while this is a demo/);
+    await expect(tx(ctx, (c) => assertMoneyAllowed(c, { name: 'fake' }))).resolves.toBeUndefined();
+    await expect(tx(ctx, (c) => assertMoneyAllowed(c, new StripeAdapter('sk_test_x', 'w')))).resolves.toBeUndefined();
+    await expect(tx(ctx, (c) => assertMoneyAllowed(c, new StripeAdapter('sk_live_x', 'w')))).rejects.toThrow(/demo/);
     await expect(autopayForCity(S.cityId, { payments: new StripeAdapter('sk_test', 'w'), email: new MemoryEmail() }, null)).rejects.toThrow(/demo/);
   });
   it('only accepts a true or false value', () => {

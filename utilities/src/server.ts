@@ -110,7 +110,10 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
     reply.header('x-frame-options', 'DENY');
     reply.header('permissions-policy', 'camera=(), microphone=(), geolocation=()');
     reply.header('content-security-policy',
-      "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; frame-ancestors 'none'; form-action 'self'; base-uri 'none'");
+      // Stripe's Payment Element: its script and secure fields come only from Stripe (see SECURITY.md, PCI).
+      "default-src 'self'; script-src 'self' https://js.stripe.com https://*.js.stripe.com; style-src 'self'; img-src 'self' data: https://*.stripe.com; " +
+      "frame-src https://js.stripe.com https://*.js.stripe.com https://hooks.stripe.com; connect-src 'self' https://api.stripe.com https://*.stripe.com; " +
+      "frame-ancestors 'none'; form-action 'self'; base-uri 'none'");
     if (deps.secureCookies) reply.header('strict-transport-security', 'max-age=31536000; includeSubDomains');
     if (!reply.hasHeader('cache-control')) reply.header('cache-control', 'no-store');
     return payload;
@@ -423,7 +426,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
     const { amount_cents } = parse(z.object({ amount_cents: z.number().int() }), req.body);
     const ctx = ctxOf(req);
     const pending = await tx(ctx, async (c) => {
-      await assertMoneyAllowed(c, deps.payments.name);
+      await assertMoneyAllowed(c, deps.payments);
       const p = await createPendingPayment(c, me(req), id, amount_cents, deps.payments.name);
       return { ...p, email: req.auth!.email };
     });
@@ -434,6 +437,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
         customerEmail: pending.email, successUrl: `${base}/pay/done?p=${pending.id}`, cancelUrl: `${base}/pay/cancelled?p=${pending.id}`,
       });
       await tx(ctx, (c) => attachProviderRef(c, pending.id, out.ref));
+      if (out.clientSecret) return { payment_id: pending.id, client_secret: out.clientSecret, publishable_key: deps.payments.publishableKey, return_url: `${base}/pay/done?p=${pending.id}` };
       // Demo only: the built-in fake processor has no real checkout page, so act as if the payment went through.
       if (deps.payments.name === 'fake' && req.demo) {
         const sys: Ctx = { cityId: req.cityId, userId: null, perms: ['payments.settle', 'ledger.post', 'accounts.read'] };
@@ -456,10 +460,11 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   app.post('/api/resident/accounts/:id/autopay/start', async (req) => {
     needRole(req, 'resident');
     const { id } = parse(z.object({ id: uuid }), req.params);
-    await tx(ctxOf(req), async (c) => { await assertMoneyAllowed(c, deps.payments.name); if (!(await c.query('select 1 from accounts where id = $1', [id])).rows[0]) throw notFound(); });
+    await tx(ctxOf(req), async (c) => { await assertMoneyAllowed(c, deps.payments); if (!(await c.query('select 1 from accounts where id = $1', [id])).rows[0]) throw notFound(); });
     const base = `${scheme}://${req.publicHost}`;
     try {
       const out = await deps.payments.createSetup({ accountId: id, customerEmail: req.auth!.email, successUrl: `${base}/#/account/${id}?autopay=1`, cancelUrl: `${base}/#/account/${id}` });
+      if (out.clientSecret) return { client_secret: out.clientSecret, publishable_key: deps.payments.publishableKey, setup_ref: out.ref, return_url: `${base}/#/account/${id}?autopay=1` };
       // Demo only: the fake processor has no page to save a card on, so enroll a pretend card right away.
       if (deps.payments.name === 'fake' && req.demo) {
         const method = await deps.payments.resolveSetup(out.ref);
@@ -471,6 +476,36 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
       req.log.error({ err: e }, 'autopay setup failed');
       throw new HttpError(502, 'We could not start setting up autopay. Please try again later.');
     }
+  });
+  // After the resident saves a card or bank account in the Payment Element, turn autopay on right away
+  // (the processor's webhook does the same thing; whichever comes first wins).
+  app.post('/api/resident/accounts/:id/autopay/confirm', async (req) => {
+    needRole(req, 'resident');
+    const { id } = parse(z.object({ id: uuid }), req.params);
+    const { setup_ref } = parse(z.object({ setup_ref: z.string().regex(/^seti_[A-Za-z0-9]+$/) }), req.body);
+    await tx(ctxOf(req), async (c) => { if (!(await c.query('select 1 from accounts where id = $1', [id])).rows[0]) throw notFound(); });
+    let method;
+    try { method = await deps.payments.resolveSetup(setup_ref); } catch { throw bad('That card or bank account was not saved. Please try again.'); }
+    if (method.accountId !== id) throw forbid('That does not belong to this account');
+    const sys: Ctx = { cityId: req.cityId, userId: null, perms: ['payments.settle', 'ledger.post', 'accounts.read'] };
+    await tx(sys, (c) => enrollFromSetup(c, id, method));
+    return { ok: true, label: method.label };
+  });
+  // After paying in the Payment Element, ask the processor and record the payment right away if it went through.
+  app.post('/api/resident/payments/:id/check', async (req) => {
+    needRole(req, 'resident');
+    const { id } = parse(z.object({ id: uuid }), req.params);
+    const sys: Ctx = { cityId: req.cityId, userId: null, perms: ['payments.settle', 'ledger.post', 'accounts.read'] };
+    const p = await tx(sys, async (c) => (await c.query('select id, account_id, provider_ref, status, amount_cents from payments where id = $1', [id])).rows[0]);
+    if (!p) throw notFound();
+    await tx(ctxOf(req), async (c) => { if (!(await c.query('select 1 from accounts where id = $1', [p.account_id])).rows[0]) throw notFound(); });
+    if (p.status !== 'pending' || !p.provider_ref || !deps.payments.paymentStatus) return { status: p.status };
+    const st = await deps.payments.paymentStatus(p.provider_ref);
+    if (st.paymentId !== id) throw forbid('Payment does not match');
+    if (st.status === 'paid' || st.status === 'failed') {
+      await tx(sys, (c) => settleFromEvent(c, deps.payments.name, { eventId: `check_${p.provider_ref}_${st.status}`, type: st.status as 'paid' | 'failed', providerRef: p.provider_ref, paymentId: id, amountCents: st.amountCents, method: st.method }));
+    }
+    return { status: st.status === 'paid' ? 'completed' : st.status };
   });
   app.post('/api/resident/accounts/:id/autopay/stop', async (req) => {
     needRole(req, 'resident');
@@ -960,6 +995,10 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
       });
       return { ok: true, result };
     }
+    // A payment can be card or bank account; ask the processor which one it really was.
+    if (ev.type === 'paid' && ev.providerRef?.startsWith('pi_') && deps.payments.paymentStatus) {
+      try { ev.method = (await deps.payments.paymentStatus(ev.providerRef)).method; } catch { /* keep the guess */ }
+    }
     const result = await tx(ctx, (c) => settleFromEvent(c, deps.payments.name, ev));
     return { ok: true, result };
   });
@@ -971,6 +1010,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
     '.svg': 'image/svg+xml', '.woff2': 'font/woff2', '.txt': 'text/plain; charset=utf-8', '.png': 'image/png', '.webmanifest': 'application/manifest+json', '.json': 'application/json',
   };
   const sendStatic = (reply: import('fastify').FastifyReply, rel: string) => {
+    if (rel.startsWith('assets/fonts/')) reply.header('access-control-allow-origin', '*'); // Stripe's fields load the city font
     const file = path.resolve(pub, '.' + path.sep + rel);
     if (!file.startsWith(pub + path.sep) || !fs.existsSync(file) || !fs.statSync(file).isFile()) return reply.code(404).type('text/plain').send('Not found');
     // no-cache means "check with the server each time"; files are small and the service worker handles offline.

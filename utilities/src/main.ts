@@ -11,7 +11,7 @@ const email = env.EMAIL_API_URL && env.EMAIL_API_TOKEN && env.EMAIL_FROM
   : new ConsoleEmail();
 
 const payments = env.STRIPE_SECRET_KEY && env.STRIPE_WEBHOOK_SECRET
-  ? new StripeAdapter(env.STRIPE_SECRET_KEY, env.STRIPE_WEBHOOK_SECRET)
+  ? new StripeAdapter(env.STRIPE_SECRET_KEY, env.STRIPE_WEBHOOK_SECRET, 300, fetch, env.STRIPE_PUBLISHABLE_KEY ?? '')
   : new FakePaymentsAdapter();
 
 // Optional single sign-on. Off unless all three are set.
@@ -24,6 +24,9 @@ const demoAdapters = env.ALLOW_DEMO_ADAPTERS === '1';
 if (production && !demoAdapters && (email instanceof ConsoleEmail || payments instanceof FakePaymentsAdapter)) {
   console.error('Refusing to start in production without a real email sender and Stripe keys. See README.');
   process.exit(1);
+}
+if (payments instanceof StripeAdapter && !payments.publishableKey) {
+  console.error('Set STRIPE_PUBLISHABLE_KEY too: the pay page shows Stripe\'s card and bank fields with it.'); process.exit(1);
 }
 if (!env.DATABASE_URL) { console.error('DATABASE_URL is required'); process.exit(1); }
 

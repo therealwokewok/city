@@ -12,7 +12,7 @@ Please report vulnerabilities privately through GitHub's "Report a vulnerability
 
 | Area | Rule | Where it is enforced | Test |
 |---|---|---|---|
-| Payment data | Card and bank details are entered on the processor's hosted page. The server never sees or stores them (PCI SAQ A). | `src/adapters/payments.ts` | `api.test.ts` payments |
+| Payment data | Card and bank details are typed into Stripe's Payment Element, which runs in Stripe's own frames inside the pay page. The server never sees or stores them. Stripe.js is loaded only from js.stripe.com and only on pages that take a payment; the Content-Security-Policy allows no other outside scripts, which is what PCI DSS 4.0 (6.4.3 and 11.6.1) asks of a page that hosts payment fields. Each city should confirm its PCI questionnaire with its processor. | `src/adapters/payments.ts`, `public/assets/js/stripe.js`, CSP in `src/server.ts` | `stripe.test.ts`, `api.test.ts` payments |
 | Tenant isolation | Every table has `city_id` and row-level security. The app role cannot bypass it. | `001_init.sql` | `security-db.test.ts` |
 | Roles | Permissions come from roles. A person can hold several; permissions add up. Each route checks one, and the database checks it again. | `permissions.ts`, RLS, `004_guards.sql` | `api.test.ts`, `security-db.test.ts` |
 | Money history | The ledger only gets new rows. Corrections are reversals. Updates and deletes are blocked for the app and by trigger for everyone. | `ledger_no_edit` | `security-db.test.ts` |

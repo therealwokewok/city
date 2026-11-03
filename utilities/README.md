@@ -19,7 +19,7 @@ See [SECURITY.md](SECURITY.md) for what is and is not covered.
 | Meter reads | Offline-friendly batch upload, duplicate-safe, flagged reads, second-person review |
 | Billing | Rates with effective dates and tiers, per-meter electric, sewer on water use, natural gas and propane (with unit conversion and a named supply adjustment), several of the same flat service on one account (two security lights), tax, extra charges on demand, bill runs approved by a second person |
 | Money | Append-only ledger, 10% (configurable) late charge rounded up, shutoff list with notice period, adjustments and refunds with one or two approvers, reversals |
-| Payments | Stripe Checkout (card and ACH) with signed, repeat-safe webhooks; cash and check at the counter. Autopay with a method saved on Stripe's own page |
+| Payments | Stripe Payment Element inside the pay page (card and ACH bank account; nobody leaves the site), with signed, repeat-safe webhooks; cash and check at the counter. Autopay with a card or bank account saved the same way. Needs `STRIPE_PUBLISHABLE_KEY`, `STRIPE_SECRET_KEY` and `STRIPE_WEBHOOK_SECRET`; a demo may use Stripe test keys |
 | Residents | Sign in, link an account with the code printed on the bill, view bills, pay, set up autopay, dispute, go paperless (bills arrive by email) |
 | Shutoffs | Staff order a shutoff only after the notice period; the field crew sees the address and marks it done; reconnect orders only after the account is paid up |
 | Service requests | New service, disconnect, move out (with a forwarding address for the final bill), move to a new address, report a leak. Residents see the status and any note from City Hall. Staff work one queue; declining needs a reason. A request never changes a bill or balance by itself |

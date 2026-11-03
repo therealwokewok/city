@@ -1,8 +1,9 @@
 import crypto from 'node:crypto';
 
 /**
- * Payment adapter. The processor hosts the payment page, so card and bank details never touch this
- * server (PCI SAQ A). Swap in another processor by implementing this interface.
+ * Payment adapter. Card and bank details are typed into the processor's own secure fields (Stripe's
+ * Payment Element, shown inside our page in Stripe's iframes), so they never touch this server.
+ * Swap in another processor by implementing this interface.
  */
 export interface CheckoutRequest {
   paymentId: string;
@@ -13,7 +14,10 @@ export interface CheckoutRequest {
   cancelUrl: string;
 }
 export interface SetupRequest { accountId: string; customerEmail?: string; successUrl: string; cancelUrl: string }
-export interface SavedMethod { customerRef: string; methodRef: string; label: string }
+export interface SavedMethod { customerRef: string; methodRef: string; label: string; accountId?: string }
+/** What the browser needs to show the processor's payment fields in our page, or a page to go to (fake processor). */
+export interface ClientStart { ref: string; clientSecret?: string; url?: string }
+export interface PaymentStatus { status: 'paid' | 'processing' | 'failed' | 'open'; amountCents: number; paymentId?: string; method: 'card' | 'ach' }
 export interface PaymentEvent {
   eventId: string;
   type: 'paid' | 'failed' | 'ignored' | 'setup_complete';
@@ -26,9 +30,15 @@ export interface PaymentEvent {
 }
 export interface PaymentsAdapter {
   name: string;
-  createCheckout(r: CheckoutRequest): Promise<{ url: string; ref: string }>;
-  /** The processor hosts the page where the customer saves a card or bank account for autopay. */
-  createSetup(r: SetupRequest): Promise<{ url: string; ref: string }>;
+  /** Public key the browser uses to show the processor's fields. Empty for the fake processor. */
+  publishableKey?: string;
+  /** false for test keys: nothing real moves, so a demo may use them. */
+  live?: boolean;
+  createCheckout(r: CheckoutRequest): Promise<ClientStart>;
+  /** Asks the processor for the current state of a payment, so the page can confirm it right away. */
+  paymentStatus?(ref: string): Promise<PaymentStatus>;
+  /** Starts saving a card or bank account for autopay, in the processor's own fields. */
+  createSetup(r: SetupRequest): Promise<ClientStart>;
   resolveSetup(setupRef: string): Promise<SavedMethod>;
   /** Charges a saved method without the customer present. Success or failure arrives later as a webhook event. */
   chargeSaved(r: { paymentId: string; amountCents: number; customerRef: string; methodRef: string; description: string }): Promise<{ ref: string }>;
@@ -40,35 +50,27 @@ export interface PaymentsAdapter {
 export class StripeAdapter implements PaymentsAdapter {
   name = 'stripe';
   constructor(private secretKey: string, private webhookSecret: string, private toleranceSec = 300,
-    private fetchImpl: typeof fetch = fetch) {}
+    private fetchImpl: typeof fetch = fetch, public publishableKey = '') { this.live = !/^(sk|rk)_test_/.test(secretKey); }
+  live: boolean;
 
-  async createCheckout(r: CheckoutRequest) {
+  /** A PaymentIntent for the Payment Element. Card or US bank account (ACH). */
+  async createCheckout(r: CheckoutRequest): Promise<ClientStart> {
     const body = new URLSearchParams({
-      mode: 'payment',
-      'line_items[0][quantity]': '1',
-      'line_items[0][price_data][currency]': 'usd',
-      'line_items[0][price_data][unit_amount]': String(r.amountCents),
-      'line_items[0][price_data][product_data][name]': r.description,
-      'payment_method_types[0]': 'card',
-      'payment_method_types[1]': 'us_bank_account',
-      client_reference_id: r.paymentId,
+      amount: String(r.amountCents), currency: 'usd', description: r.description,
+      'payment_method_types[0]': 'card', 'payment_method_types[1]': 'us_bank_account',
       'metadata[payment_id]': r.paymentId,
-      success_url: r.successUrl,
-      cancel_url: r.cancelUrl,
     });
-    if (r.customerEmail) body.set('customer_email', r.customerEmail);
-    const res = await this.fetchImpl('https://api.stripe.com/v1/checkout/sessions', {
-      method: 'POST',
-      headers: {
-        authorization: `Bearer ${this.secretKey}`,
-        'content-type': 'application/x-www-form-urlencoded',
-        'idempotency-key': r.paymentId,
-      },
-      body,
-    });
-    const j: any = await res.json();
-    if (!res.ok) throw new Error('Stripe error: ' + (j?.error?.message ?? res.status));
-    return { url: j.url as string, ref: j.id as string };
+    if (r.customerEmail) body.set('receipt_email', r.customerEmail);
+    const j = await this.stripe('POST', 'payment_intents', body, 'pay-' + r.paymentId);
+    return { ref: j.id as string, clientSecret: j.client_secret as string };
+  }
+
+  async paymentStatus(ref: string): Promise<PaymentStatus> {
+    const j = await this.stripe('GET', `payment_intents/${encodeURIComponent(ref)}?expand[]=payment_method`);
+    const status = j.status === 'succeeded' ? 'paid' : j.status === 'processing' ? 'processing'
+      : j.status === 'canceled' || j.last_payment_error ? 'failed' : 'open';
+    return { status, amountCents: Number(j.amount_received || j.amount), paymentId: j.metadata?.payment_id,
+      method: j.payment_method?.type === 'us_bank_account' ? 'ach' : 'card' };
   }
 
   private async stripe(method: 'GET' | 'POST', path: string, body?: URLSearchParams, idem?: string): Promise<any> {
@@ -82,25 +84,27 @@ export class StripeAdapter implements PaymentsAdapter {
     return j;
   }
 
-  async createSetup(r: SetupRequest) {
+  /** A Stripe customer plus a SetupIntent, so the Payment Element can save a card or bank account for autopay. */
+  async createSetup(r: SetupRequest): Promise<ClientStart> {
+    const cust = new URLSearchParams({ 'metadata[account_id]': r.accountId, description: 'Utility autopay' });
+    if (r.customerEmail) cust.set('email', r.customerEmail);
+    const customer = await this.stripe('POST', 'customers', cust);
     const body = new URLSearchParams({
-      mode: 'setup', currency: 'usd', customer_creation: 'always',
+      customer: customer.id, usage: 'off_session',
       'payment_method_types[0]': 'card', 'payment_method_types[1]': 'us_bank_account',
-      client_reference_id: r.accountId, 'metadata[account_id]': r.accountId, 'metadata[purpose]': 'autopay',
-      success_url: r.successUrl, cancel_url: r.cancelUrl,
+      'metadata[account_id]': r.accountId, 'metadata[purpose]': 'autopay',
     });
-    if (r.customerEmail) body.set('customer_email', r.customerEmail);
-    const j = await this.stripe('POST', 'checkout/sessions', body);
-    return { url: j.url as string, ref: j.id as string };
+    const j = await this.stripe('POST', 'setup_intents', body);
+    return { ref: j.id as string, clientSecret: j.client_secret as string };
   }
 
   async resolveSetup(setupRef: string): Promise<SavedMethod> {
     const si = await this.stripe('GET', `setup_intents/${encodeURIComponent(setupRef)}?expand[]=payment_method`);
     const pm = si.payment_method;
-    if (!pm?.id || !si.customer) throw new Error('setup is not complete');
+    if (si.status !== 'succeeded' || !pm?.id || !si.customer) throw new Error('setup is not complete');
     const label = pm.type === 'card' ? `${String(pm.card?.brand ?? 'Card').replace(/^./, (c: string) => c.toUpperCase())} card ending ${pm.card?.last4 ?? ''}`.trim()
       : pm.type === 'us_bank_account' ? `Bank account ending ${pm.us_bank_account?.last4 ?? ''}`.trim() : 'Saved payment method';
-    return { customerRef: String(si.customer), methodRef: String(pm.id), label };
+    return { customerRef: String(si.customer), methodRef: String(pm.id), label, accountId: si.metadata?.account_id };
   }
 
   async chargeSaved(r: { paymentId: string; amountCents: number; customerRef: string; methodRef: string; description: string }) {
@@ -117,6 +121,9 @@ export class StripeAdapter implements PaymentsAdapter {
     const ev = JSON.parse(rawBody);
     const obj = ev?.data?.object ?? {};
     const base = { eventId: String(ev.id), providerRef: obj.id as string | undefined, paymentId: obj.metadata?.payment_id as string | undefined };
+    if (ev.type === 'setup_intent.succeeded' && obj.metadata?.purpose === 'autopay') {
+      return { ...base, type: 'setup_complete', accountId: obj.metadata?.account_id, setupRef: obj.id as string };
+    }
     if (ev.type === 'checkout.session.completed' && obj.mode === 'setup') {
       return { ...base, type: 'setup_complete', accountId: obj.metadata?.account_id, setupRef: obj.setup_intent as string | undefined };
     }
@@ -156,14 +163,14 @@ export class FakePaymentsAdapter implements PaymentsAdapter {
   secret = 'fake-secret';
   charges: { paymentId: string; amountCents: number; customerRef: string; methodRef: string }[] = [];
   failCharges = false;
-  async createSetup(r: SetupRequest) { return { url: `${r.successUrl}&fake=1`, ref: 'fake_setup_' + r.accountId }; }
+  async createSetup(r: SetupRequest): Promise<ClientStart> { return { url: `${r.successUrl}&fake=1`, ref: 'fake_setup_' + r.accountId }; }
   async resolveSetup(ref: string): Promise<SavedMethod> { return { customerRef: 'cus_' + ref, methodRef: 'pm_' + ref, label: 'Visa card ending 4242' }; }
   async chargeSaved(r: { paymentId: string; amountCents: number; customerRef: string; methodRef: string; description: string }) {
     if (this.failCharges) throw new Error('card declined');
     this.charges.push({ paymentId: r.paymentId, amountCents: r.amountCents, customerRef: r.customerRef, methodRef: r.methodRef });
     return { ref: 'fake_pi_' + r.paymentId };
   }
-  async createCheckout(r: CheckoutRequest) {
+  async createCheckout(r: CheckoutRequest): Promise<ClientStart> {
     return { url: `${r.successUrl}&fake=1`, ref: 'fake_' + r.paymentId };
   }
   verifyWebhook(raw: string, header: string | undefined): PaymentEvent {

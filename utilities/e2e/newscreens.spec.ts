@@ -70,7 +70,7 @@ test('resident: autopay card says City Hall never keeps card details, and paperl
   await expect(page.getByRole('heading', { level: 1, name: 'Your utility bills' })).toBeVisible();
   await page.getByRole('link', { name: 'See my bills and history' }).first().click();
   await expect(page.getByRole('heading', { name: 'Autopay' })).toBeVisible();
-  await expect(page.getByText('City Hall never sees or keeps them')).toBeVisible();
+  await expect(page.getByText('City Hall never sees or keeps your details')).toBeVisible();
   await expect(page.getByRole('button', { name: 'Set up autopay' })).toBeVisible();
   expect((await axe(page)).violations).toEqual([]);
   await noSidewaysScroll(page); await bigEnoughTargets(page);

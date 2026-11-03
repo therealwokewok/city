@@ -103,15 +103,13 @@ test('a resident connects an account, reads a bill, asks a question and pays', a
   await expect(page.getByText('city never sees or stores them')).toBeVisible();
   await page.getByLabel('Pay a different amount').check();
   await page.getByLabel('Amount in dollars').fill('abc');
-  await page.getByRole('button', { name: 'Continue to secure payment' }).click();
+  await page.getByRole('button', { name: 'Continue' }).click();
   await expect(page.getByRole('alert')).toContainText('like 25.00');
   await page.getByLabel('Amount in dollars').fill('10.00');
-  await page.getByRole('button', { name: 'Continue to secure payment' }).click();
-  await expect(page.getByRole('dialog')).toContainText('Pay $10.00?');
   expect((await axe(page)).violations).toEqual([]);
-  await page.getByRole('button', { name: 'Yes, pay $10.00' }).click();
+  await page.getByRole('button', { name: 'Continue' }).click();
 
-  // back from the (fake) payment page
+  // The demo's pretend processor has no card form, so the payment finishes right away
   await expect(page.getByRole('heading', { level: 1, name: 'Thank you' })).toBeVisible();
   const paymentId = new URL(page.url()).searchParams.get('p');
   void paymentId;
