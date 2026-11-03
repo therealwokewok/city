@@ -1,5 +1,6 @@
 // Demo data for trying the app locally. Fictional city, fictional people, example rates.
 //   npm run seed        then browse to http://localhost:8080 with the Host header demo.localhost
+//   Optional: DEMO_HOSTS=utilities.example.org (comma separated) and DEMO_ADMIN_EMAIL=you@example.org for a hosted demo.
 import pg from 'pg';
 import { addDefaultServices, addDemoAccount, addExampleRates, createCity } from '../src/bootstrap.js';
 
@@ -8,8 +9,8 @@ if (!url) { console.error('Set DATABASE_URL'); process.exit(1); }
 const db = new pg.Client({ connectionString: url });
 await db.connect();
 const { cityId } = await createCity(db, {
-  name: 'City of Example', state: 'MO', timezone: 'America/Chicago', hosts: ['demo.localhost', 'localhost'],
-  adminEmail: 'admin@example.test', adminName: 'Demo Administrator', siteAdminEmail: 'it@example.test',
+  name: 'City of Example', state: 'MO', timezone: 'America/Chicago', hosts: process.env.DEMO_HOSTS ? process.env.DEMO_HOSTS.split(',').map((h) => h.trim()) : ['demo.localhost', 'localhost'],
+  adminEmail: process.env.DEMO_ADMIN_EMAIL ?? 'admin@example.test', adminName: 'Demo Administrator', siteAdminEmail: 'it@example.test',
   settings: { demo_mode: true, return_address: 'City of Example\nPO Box 1\nExample, MO 00000', remit_to: 'City of Example, PO Box 1, Example, MO 00000', office_hours: 'Mon-Fri 8:00 to 4:30' },
 });
 await addDefaultServices(db, cityId);

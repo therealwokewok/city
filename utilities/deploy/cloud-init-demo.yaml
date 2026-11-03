@@ -1,0 +1,26 @@
+#cloud-config
+# Builds a demo server on a fresh Ubuntu cloud image. Replace the three values marked CHANGE before use.
+package_update: true
+packages: [git, ca-certificates, curl, ufw]
+write_files:
+  - path: /usr/local/bin/install-demo.sh
+    permissions: "0755"
+    content: |
+      #!/bin/sh
+      set -e
+      curl -fsSL https://get.docker.com | sh
+      ufw allow 22/tcp; ufw allow 80/tcp; ufw allow 443/tcp; ufw --force enable
+      git clone https://github.com/therealwokewok/city /opt/city
+      cd /opt/city/utilities/deploy
+      cat > .env <<ENV
+      DEMO_HOST=utilities.osceolamo.com
+      DEMO_ADMIN_EMAIL=coryscline@gmail.com
+      OWNER_PASSWORD=$(head -c 24 /dev/urandom | base64 | tr -dc A-Za-z0-9)
+      APP_PASSWORD=$(head -c 24 /dev/urandom | base64 | tr -dc A-Za-z0-9)
+      ENV
+      chmod 600 .env
+      docker compose -f docker-compose.demo.yml up -d --build
+      . ./.env
+      docker compose -f docker-compose.demo.yml exec -T -e OWNER_DATABASE_URL=postgres://utilities_owner:$OWNER_PASSWORD@db:5432/utilities -e DEMO_HOSTS=$DEMO_HOST -e DEMO_ADMIN_EMAIL=$DEMO_ADMIN_EMAIL app node dist/scripts/seed.js > /var/log/demo-seed.log 2>&1 || true
+runcmd:
+  - [sh, -c, "/usr/local/bin/install-demo.sh > /var/log/install-demo.log 2>&1"]

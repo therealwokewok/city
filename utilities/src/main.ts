@@ -19,7 +19,9 @@ const sso = env.OIDC_ISSUER && env.OIDC_CLIENT_ID && env.OIDC_CLIENT_SECRET
   ? new OidcProvider(env.OIDC_NAME ?? 'work account', env.OIDC_ISSUER, env.OIDC_CLIENT_ID, env.OIDC_CLIENT_SECRET)
   : undefined;
 
-if (production && (email instanceof ConsoleEmail || payments instanceof FakePaymentsAdapter)) {
+// A hosted demo has no real email or Stripe. ALLOW_DEMO_ADAPTERS=1 permits that; demo mode is what keeps real money from moving.
+const demoAdapters = env.ALLOW_DEMO_ADAPTERS === '1';
+if (production && !demoAdapters && (email instanceof ConsoleEmail || payments instanceof FakePaymentsAdapter)) {
   console.error('Refusing to start in production without a real email sender and Stripe keys. See README.');
   process.exit(1);
 }

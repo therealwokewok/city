@@ -1,0 +1,36 @@
+# A public demo: fake payments, sign-in codes written to the log, HTTPS from Caddy.
+# Not for real bills. See deploy/README.md.
+services:
+  db:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: utilities_owner
+      POSTGRES_PASSWORD: ${OWNER_PASSWORD}
+      POSTGRES_DB: utilities
+    volumes: ["dbdata:/var/lib/postgresql/data"]
+    healthcheck: { test: ["CMD-SHELL", "pg_isready -U utilities_owner"], interval: 3s, retries: 20 }
+  migrate:
+    build: { context: .., dockerfile: Dockerfile }
+    command: ["node", "dist/src/migrate.js"]
+    environment:
+      OWNER_DATABASE_URL: postgres://utilities_owner:${OWNER_PASSWORD}@db:5432/utilities
+      APP_DB_PASSWORD: ${APP_PASSWORD}
+    depends_on: { db: { condition: service_healthy } }
+  app:
+    build: { context: .., dockerfile: Dockerfile }
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      ALLOW_DEMO_ADAPTERS: "1"
+      TRUST_PROXY: "1"
+      DATABASE_URL: postgres://utilities_app:${APP_PASSWORD}@db:5432/utilities
+    depends_on: { migrate: { condition: service_completed_successfully } }
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    ports: ["80:80", "443:443"]
+    environment: { DEMO_HOST: "${DEMO_HOST}" }
+    volumes: ["./Caddyfile:/etc/caddy/Caddyfile:ro", "caddydata:/data"]
+    depends_on: [app]
+volumes: { dbdata: {}, caddydata: {} }
