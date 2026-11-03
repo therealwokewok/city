@@ -247,6 +247,16 @@ describe('payments', () => {
     const st = (await owner.query('select status, method from payments where id = $1', [pid])).rows[0];
     expect(st).toEqual({ status: 'succeeded', method: 'ach' });
   });
+  it('still posts the money when a payment we marked failed later goes through', async () => {
+    const b0 = await bal();
+    await call('res1', 'POST', `/api/resident/accounts/${S.accounts.a1}/pay`, { amount_cents: 2000 });
+    const p2 = (await owner.query(`select id from payments where account_id = $1 and status = 'pending'`, [S.accounts.a1])).rows[0].id;
+    expect((await hook({ id: 'evt_f1', type: 'failed', payment_id: p2 })).json.result).toBe('failed');
+    expect((await hook({ id: 'evt_f2', type: 'failed', payment_id: p2 })).json.result).toBe('duplicate');
+    expect((await hook({ id: 'evt_f3', type: 'paid', payment_id: p2, amount: 2000 })).json.result).toBe('paid');
+    expect((await hook({ id: 'evt_f4', type: 'paid', payment_id: p2, amount: 2000 })).json.result).toBe('duplicate');
+    expect(await bal()).toBe(b0 - 2000);
+  });
   it('ignores a webhook for a payment we never started', async () => {
     expect((await hook({ id: 'evt_x', type: 'paid', payment_id: '00000000-0000-4000-8000-000000000000', amount: 100 })).json.result).toBe('unknown_payment');
   });

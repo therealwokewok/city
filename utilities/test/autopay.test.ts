@@ -60,7 +60,11 @@ describe('Stripe adapter for autopay', () => {
     expect(evt('checkout.session.completed', { id: 'cs_1', mode: 'setup', setup_intent: 'seti_1', metadata: { account_id: 'acc' } })).toMatchObject({ type: 'setup_complete', setupRef: 'seti_1', accountId: 'acc' });
     expect(evt('payment_intent.succeeded', { id: 'pi_1', amount_received: 500, payment_method_types: ['card'], metadata: { payment_id: 'p1' } })).toMatchObject({ type: 'paid', amountCents: 500, paymentId: 'p1' });
     expect(evt('payment_intent.succeeded', { id: 'pi_2', amount_received: 500, metadata: {} }).type).toBe('ignored');
-    expect(evt('payment_intent.payment_failed', { id: 'pi_3', metadata: { payment_id: 'p2' } }).type).toBe('failed');
+    // a declined card on the pay page is not final: the customer can try another card on the same payment
+    expect(evt('payment_intent.payment_failed', { id: 'pi_3', metadata: { payment_id: 'p2' } }).type).toBe('ignored');
+    expect(evt('payment_intent.payment_failed', { id: 'pi_4', metadata: { payment_id: 'p3', kind: 'autopay' } }).type).toBe('failed');
+    expect(evt('payment_intent.payment_failed', { id: 'pi_5', metadata: { payment_id: 'p4' }, last_payment_error: { payment_method: { type: 'us_bank_account' } } }).type).toBe('failed');
+    expect(evt('payment_intent.canceled', { id: 'pi_6', metadata: { payment_id: 'p5' } }).type).toBe('failed');
   });
 });
 

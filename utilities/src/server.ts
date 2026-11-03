@@ -499,10 +499,10 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
     const p = await tx(sys, async (c) => (await c.query('select id, account_id, provider_ref, status, amount_cents from payments where id = $1', [id])).rows[0]);
     if (!p) throw notFound();
     await tx(ctxOf(req), async (c) => { if (!(await c.query('select 1 from accounts where id = $1', [p.account_id])).rows[0]) throw notFound(); });
-    if (p.status !== 'pending' || !p.provider_ref || !deps.payments.paymentStatus) return { status: p.status };
+    if (p.status === 'succeeded' || !p.provider_ref || !deps.payments.paymentStatus) return { status: p.status === 'succeeded' ? 'completed' : p.status };
     const st = await deps.payments.paymentStatus(p.provider_ref);
     if (st.paymentId !== id) throw forbid('Payment does not match');
-    if (st.status === 'paid' || st.status === 'failed') {
+    if (st.status === 'paid' || (st.status === 'failed' && p.status === 'pending')) {
       await tx(sys, (c) => settleFromEvent(c, deps.payments.name, { eventId: `check_${p.provider_ref}_${st.status}`, type: st.status as 'paid' | 'failed', providerRef: p.provider_ref, paymentId: id, amountCents: st.amountCents, method: st.method }));
     }
     return { status: st.status === 'paid' ? 'completed' : st.status };

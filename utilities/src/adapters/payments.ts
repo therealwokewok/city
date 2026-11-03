@@ -67,8 +67,9 @@ export class StripeAdapter implements PaymentsAdapter {
 
   async paymentStatus(ref: string): Promise<PaymentStatus> {
     const j = await this.stripe('GET', `payment_intents/${encodeURIComponent(ref)}?expand[]=payment_method`);
+    // A declined card leaves the PaymentIntent open so the customer can try another card. Only "canceled" is final.
     const status = j.status === 'succeeded' ? 'paid' : j.status === 'processing' ? 'processing'
-      : j.status === 'canceled' || j.last_payment_error ? 'failed' : 'open';
+      : j.status === 'canceled' ? 'failed' : 'open';
     return { status, amountCents: Number(j.amount_received || j.amount), paymentId: j.metadata?.payment_id,
       method: j.payment_method?.type === 'us_bank_account' ? 'ach' : 'card' };
   }
@@ -111,6 +112,7 @@ export class StripeAdapter implements PaymentsAdapter {
     const body = new URLSearchParams({
       amount: String(r.amountCents), currency: 'usd', customer: r.customerRef, payment_method: r.methodRef,
       off_session: 'true', confirm: 'true', description: r.description, 'metadata[payment_id]': r.paymentId,
+      'metadata[kind]': 'autopay',
     });
     const j = await this.stripe('POST', 'payment_intents', body, 'autopay-' + r.paymentId);
     return { ref: j.id as string };
@@ -130,7 +132,14 @@ export class StripeAdapter implements PaymentsAdapter {
     if (ev.type === 'payment_intent.succeeded' && obj.metadata?.payment_id) {
       return { ...base, type: 'paid', amountCents: obj.amount_received, method: String(obj.payment_method_types?.[0]) === 'us_bank_account' ? 'ach' : 'card' };
     }
-    if (ev.type === 'payment_intent.payment_failed' && obj.metadata?.payment_id) return { ...base, type: 'failed' };
+    if (ev.type === 'payment_intent.payment_failed' && obj.metadata?.payment_id) {
+      // Stripe sends this for every declined try. When the customer is on the page they can try another card on the
+      // same payment, so it is not the end. It is final for autopay (nobody is there to retry) and for a bank
+      // payment that bounced days later.
+      const bank = obj.last_payment_error?.payment_method?.type === 'us_bank_account';
+      return { ...base, type: obj.metadata?.kind === 'autopay' || bank ? 'failed' : 'ignored' };
+    }
+    if (ev.type === 'payment_intent.canceled' && obj.metadata?.payment_id) return { ...base, type: 'failed' };
     if (ev.type === 'checkout.session.completed' || ev.type === 'checkout.session.async_payment_succeeded') {
       // ACH completes later: only treat it as paid once Stripe says the money is paid.
       if (obj.payment_status !== 'paid') return { ...base, type: 'ignored' };

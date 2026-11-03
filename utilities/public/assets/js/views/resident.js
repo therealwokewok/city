@@ -152,13 +152,14 @@ export async function pay(id) {
   const full = h('input', { type: 'radio', name: 'amt', id: 'amt-full', value: 'full', checked: true });
   const other = h('input', { type: 'radio', name: 'amt', id: 'amt-other', value: 'other' });
   const custom = h('input', { type: 'text', inputmode: 'decimal', id: 'custom', autocomplete: 'off', disabled: true, 'aria-describedby': 'custom-hint' });
-  const sync = () => { custom.disabled = !other.checked; if (other.checked) custom.focus(); };
+  const customField = h('div', { class: 'field', hidden: true }, h('label', { for: 'custom' }, 'Amount in dollars'), h('p', { class: 'hint', id: 'custom-hint' }, 'For example 25.00. The smallest payment is $1.00.'), custom);
+  const sync = () => { custom.disabled = !other.checked; customField.hidden = !other.checked; if (other.checked) custom.focus(); };
   full.addEventListener('change', sync); other.addEventListener('change', sync);
   const form = h('form', { novalidate: true },
     h('p', { class: 'muted' }, d.account.service_address),
     owed ? h('label', { class: 'radio-card', for: 'amt-full' }, full, h('span', {}, 'Pay everything I owe: ', h('strong', {}, money(owed)))) : null,
     h('label', { class: 'radio-card', for: 'amt-other' }, owed ? other : (other.checked = true, other), h('span', {}, 'Pay a different amount')),
-    h('div', { class: 'field' }, h('label', { for: 'custom' }, 'Amount in dollars'), h('p', { class: 'hint', id: 'custom-hint' }, 'For example 25.00. The smallest payment is $1.00.'), custom),
+    customField,
     h('p', { class: 'hint' }, 'Next, you type your card or bank account right here. Those details go straight to Stripe, the city\'s payment company. The city never sees or stores them.'),
     h('div', { class: 'actions' }, h('button', { class: 'btn', type: 'submit' }, 'Continue'), h('a', { class: 'btn secondary', href: '#/' }, 'Cancel')));
   const host = h('div');

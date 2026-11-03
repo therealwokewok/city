@@ -61,7 +61,8 @@ export async function settleFromEvent(c: pg.PoolClient, provider: string, ev: Pa
     `select * from payments where provider = $1 and (provider_ref = $2 or id::text = $3) for update`,
     [provider, ev.providerRef ?? null, ev.paymentId ?? null])).rows[0];
   if (!p) { await audit(c, null, 'payment.unknown', { event_id: ev.eventId }); return 'unknown_payment'; }
-  if (p.status !== 'pending') return 'duplicate';
+  // Money that really arrived is always posted, even if an earlier event made us think the payment had failed.
+  if (p.status === 'succeeded' || (p.status === 'failed' && ev.type !== 'paid')) return 'duplicate';
   if (ev.type === 'failed') {
     await c.query(`update payments set status = 'failed', completed_at = now() where id = $1`, [p.id]);
     await audit(c, null, 'payment.failed', { payment_id: p.id });
@@ -78,6 +79,6 @@ export async function settleFromEvent(c: pg.PoolClient, provider: string, ev: Pa
   await c.query(
     `update payments set status = 'succeeded', method = $2, completed_at = now(), ledger_entry_id = $3 where id = $1`,
     [p.id, ev.method ?? 'card', le.rows[0].id]);
-  await audit(c, null, 'payment.succeeded', { payment_id: p.id, amount_cents: p.amount_cents });
+  await audit(c, null, 'payment.succeeded', { payment_id: p.id, amount_cents: p.amount_cents, ...(p.status === 'failed' ? { after_failure: true } : {}) });
   return 'paid';
 }
