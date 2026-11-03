@@ -1,0 +1,79 @@
+import type pg from 'pg';
+
+export interface CitySettings {
+  penalty_bps: number;            // late charge, 1000 = 10%
+  due_days: number;               // days from bill date to due date
+  shutoff_notice_days: number;    // days after due date before a shutoff may be listed
+  approval_limit_cents: number;   // adjustments above this need a second approver
+  tax_bps: number;
+  high_usage_factor: number;      // flag a read above this multiple of last usage
+  stepup_minutes: number;
+  remit_to: string;
+  return_address: string;
+  office_hours: string;
+  phone: string;
+  theme_color: string;            // '#RRGGBB', must be dark enough for white button text; empty means the default blue
+  update_check: boolean;          // look for new versions on GitHub
+  update_repo: string;            // where new versions come from
+  demo_mode: boolean;             // banner, watermark, hidden from search engines, no real money moves
+}
+
+export const DEFAULT_UPDATE_REPO = 'https://github.com/therealwokewok/city';
+
+/** WCAG contrast ratio of a #RRGGBB color against white. */
+export function contrastOnWhite(hex: string): number {
+  const ch = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255).map((v) => (v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4));
+  const lum = 0.2126 * ch[0] + 0.7152 * ch[1] + 0.0722 * ch[2];
+  return 1.05 / (lum + 0.05);
+}
+export const GITHUB_REPO = /^https:\/\/github\.com\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
+
+export const DEFAULT_SETTINGS: CitySettings = {
+  penalty_bps: 1000, due_days: 15, shutoff_notice_days: 5, approval_limit_cents: 50000, tax_bps: 0,
+  high_usage_factor: 3, stepup_minutes: 10, remit_to: '', return_address: '', office_hours: '', phone: '',
+  theme_color: '', update_check: true, update_repo: DEFAULT_UPDATE_REPO,
+  demo_mode: false, // new cities made by the bootstrap script start in demo mode; see bootstrap.ts
+};
+
+export async function loadSettings(c: pg.PoolClient): Promise<CitySettings> {
+  const r = await c.query('select settings from cities where id = app_city()');
+  return { ...DEFAULT_SETTINGS, ...(r.rows[0]?.settings ?? {}) };
+}
+
+const NUMERIC_KEYS = ['penalty_bps', 'due_days', 'shutoff_notice_days', 'approval_limit_cents', 'tax_bps',
+  'high_usage_factor', 'stepup_minutes'];
+const TEXT_KEYS = ['remit_to', 'return_address', 'office_hours', 'phone'];
+
+export function validateSettings(input: Record<string, unknown>): Partial<CitySettings> {
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(input)) {
+    if (NUMERIC_KEYS.includes(k)) {
+      if (typeof v !== 'number' || !Number.isFinite(v) || v < 0 || v > 1_000_000_000) throw new Error(`bad value for ${k}`);
+      out[k] = v;
+    } else if (TEXT_KEYS.includes(k)) {
+      if (typeof v !== 'string' || v.length > 500) throw new Error(`bad value for ${k}`);
+      out[k] = v;
+    } else if (k === 'theme_color') {
+      if (typeof v !== 'string' || (v !== '' && !/^#[0-9a-fA-F]{6}$/.test(v))) throw new Error('Pick a color like #0b4f8a');
+      if (v !== '' && contrastOnWhite(v) < 4.5) throw new Error('That color is too light for white button text. Pick a darker one');
+      out[k] = v.toLowerCase();
+    } else if (k === 'update_check') {
+      if (typeof v !== 'boolean') throw new Error('bad value for update_check');
+      out[k] = v;
+    } else if (k === 'demo_mode') {
+      if (typeof v !== 'boolean') throw new Error('bad value for demo_mode');
+      out[k] = v;
+    } else if (k === 'update_repo') {
+      if (typeof v !== 'string' || !GITHUB_REPO.test(v.trim())) throw new Error('The update source must be a GitHub address like https://github.com/owner/name');
+      out[k] = v.trim();
+    } else throw new Error(`unknown setting ${k}`);
+  }
+  return out as Partial<CitySettings>;
+}
+
+/** While a city is in demo mode, real money must not move. The fake processor used for trying things out is fine. */
+export async function assertMoneyAllowed(c: pg.PoolClient, processorName: string) {
+  if (processorName !== 'fake' && (await loadSettings(c)).demo_mode) {
+    const e: any = new Error('Payments are turned off while this is a demo. No one has been charged.'); e.status = 409; throw e;
+  }
+}

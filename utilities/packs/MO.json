@@ -1,0 +1,13 @@
+{
+  "state": "MO",
+  "name": "Missouri starting values",
+  "timezone": "America/Chicago",
+  "settings": { "penalty_bps": 1000, "due_days": 15, "shutoff_notice_days": 5 },
+  "review_with_your_attorney": [
+    "Late charge percent and when it applies",
+    "How many days of notice a customer must get before service is shut off, and how the notice is delivered",
+    "Any seasonal or medical protections that apply to your utility",
+    "Whether sales tax applies to any of your services"
+  ],
+  "note": "These are starting numbers, not legal advice. Your city's ordinances decide the real values. Change them under Administration, City settings."
+}

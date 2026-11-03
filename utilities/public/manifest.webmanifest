@@ -1,0 +1,9 @@
+{
+  "name": "City utilities",
+  "short_name": "Utilities",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#fbfaf7",
+  "theme_color": "#0b4f8a",
+  "icons": [{ "src": "/favicon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }]
+}

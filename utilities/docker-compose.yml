@@ -1,0 +1,25 @@
+# Local trial run. For a real install, put the app behind HTTPS and use a managed PostgreSQL with backups.
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: utilities_owner
+      POSTGRES_PASSWORD: dev
+      POSTGRES_DB: utilities
+    volumes: ["dbdata:/var/lib/postgresql/data"]
+    healthcheck: { test: ["CMD-SHELL", "pg_isready -U utilities_owner"], interval: 3s, retries: 20 }
+  migrate:
+    build: .
+    command: ["node", "dist/src/migrate.js"]
+    environment:
+      OWNER_DATABASE_URL: postgres://utilities_owner:dev@db:5432/utilities
+      APP_DB_PASSWORD: dev-app
+    depends_on: { db: { condition: service_healthy } }
+  app:
+    build: .
+    ports: ["8080:8080"]
+    environment:
+      NODE_ENV: development          # development uses console email and a fake payment processor
+      DATABASE_URL: postgres://utilities_app:dev-app@db:5432/utilities
+    depends_on: { migrate: { condition: service_completed_successfully } }
+volumes: { dbdata: {} }

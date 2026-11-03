@@ -1,0 +1,127 @@
+# utilities
+
+Free, open-source utility billing for small cities. Meter readers submit reads from a phone, staff review and
+bill them, residents look up bills and pay online. Water, sewer, trash, electric (including several meters on
+one account), security lights, and any extra charge a city invents. Card and bank details never touch your server.
+
+Built first for the City of Osceola, Missouri, but nothing about Osceola is hard-coded: rates, penalty rules,
+paper sizes, envelope layouts, office hours and approval limits are all settings.
+
+**Status: early.** The server, database, security model and web screens for residents, meter readers, billing staff and administrators are built. They are tested in Chrome on a phone-size and a desktop-size window. They have not yet been run in Firefox, Safari or Edge, or with a real screen reader (see Browser support below).
+See [SECURITY.md](SECURITY.md) for what is and is not covered.
+
+## What works today
+
+| Area | Done |
+|---|---|
+| Sign-in | No passwords for anyone. A one-time 8-digit code is emailed (good for 10 minutes, 5 tries, at most 3 codes per email per 10 minutes). Optional passkeys, and optional single sign-on with any OpenID Connect provider |
+| People and roles | 9 roles, several per person, step-up email codes for risky actions |
+| Meter reads | Offline-friendly batch upload, duplicate-safe, flagged reads, second-person review |
+| Billing | Rates with effective dates and tiers, per-meter electric, sewer on water use, natural gas and propane (with unit conversion and a named supply adjustment), several of the same flat service on one account (two security lights), tax, extra charges on demand, bill runs approved by a second person |
+| Money | Append-only ledger, 10% (configurable) late charge rounded up, shutoff list with notice period, adjustments and refunds with one or two approvers, reversals |
+| Payments | Stripe Checkout (card and ACH) with signed, repeat-safe webhooks; cash and check at the counter. Autopay with a method saved on Stripe's own page |
+| Residents | Sign in, link an account with the code printed on the bill, view bills, pay, set up autopay, dispute, go paperless (bills arrive by email) |
+| Shutoffs | Staff order a shutoff only after the notice period; the field crew sees the address and marks it done; reconnect orders only after the account is paid up |
+| Service requests | New service, disconnect, move out (with a forwarding address for the final bill), move to a new address, report a leak. Residents see the status and any note from City Hall. Staff work one queue; declining needs a reason. A request never changes a bill or balance by itself |
+| Printing | Bills and envelopes as PDFs from print profiles you define for any paper or envelope size, with a test page |
+| Screens | Phone-first and large-print friendly: text size buttons, big tap targets, plain wording, works offline for meter readers. Residents, meter readers, billing staff, cashiers, approvers, auditors, administrators |
+| Administration | Staff and roles, city settings, services on or off, rates by start date, print layouts, the city's color and logo, update source, and a readable activity log with a tamper check |
+| Safety | Row-level security, audit chain, host-based city lookup, CSRF, security headers |
+
+Services a city can turn on: water, sewer, electric, trash, security light, natural gas, propane, stormwater, recycling, yard waste, ambulance subscription, internet, irrigation and street light. Only the ones a city switches on appear in bills and forms. Staff can change services, quantities and meters on any account from its page. Refunds of a credit go through a second-person approval (the city pays the money back by check or its own bank; utilities never moves money out). Starting values for a state live in `packs/` (Missouri is included; add yours). Not built yet: automatic collection on a schedule (a staff member presses a button on or after the due date), and a screen for editing a rate's history.
+
+## Try it
+
+```bash
+docker compose up --build         # database, migrations, app on :8080
+docker compose exec app node dist/scripts/seed.js   # optional demo city
+```
+
+Without Docker: Node 22 and PostgreSQL 16, then `npm ci`, `npm run migrate`, `npm run seed`, `npm run dev`.
+In development, sign-in codes print to the console and payments use a fake processor.
+
+## Install for a real city
+
+1. Create a database. Run `npm run migrate` as the owner account; run the app as `utilities_app`.
+2. `npm run bootstrap -- --name "City of Example" --state MO --host utilities.example.gov --admin clerk@example.gov`
+3. Put it behind HTTPS on its own subdomain. Fill in `.env` (see `.env.example`).
+4. Work through the handoff gate in [SECURITY.md](SECURITY.md).
+5. The city creates **its own** Stripe account and keeps the keys. No platform fee is added by this software.
+
+## How it is put together
+
+TypeScript on Node 22, Fastify, PostgreSQL 16. One container image, one database. Email, payments and single sign-on
+are adapters in `src/adapters/`, so no vendor is required. Rates are data in the database.
+Everything in `src/domain/` takes a database transaction and the signed-in person, so the same rules apply
+whether the call comes from the web, a script, or a test.
+
+```
+src/migrations/   database schema, row-level security, guards
+src/domain/       accounts, billing, payments rules
+src/server.ts     HTTP API (every route names the permission it needs)
+src/printing.ts   bill, envelope and test-page PDFs
+public/           the web screens: plain JavaScript, no framework, no build step
+e2e/              browser tests (Playwright) with accessibility scans
+test/             108 tests, including role and tenant boundaries
+packs/            starting values per state (a pack never sets rates)
+docs/             how updates work
+```
+
+## Updates
+
+Administration, Updates shows whether a newer version exists and lets the city choose where updates come from. It starts as `https://github.com/therealwokewok/city` and can be changed to any other GitHub address, such as a fork. Installing the update is up to whoever hosts the program, because a running program should never replace its own code. The host can make that automatic. See [docs/updates.md](docs/updates.md).
+
+## Sign-in options
+
+Passkeys need nothing extra; people add one under "My sign-in options". Single sign-on is off until you set `OIDC_ISSUER`, `OIDC_CLIENT_ID` and `OIDC_CLIENT_SECRET` (see `.env.example`). It only signs in people who already have an account.
+
+## License
+
+Apache License 2.0. See [LICENSE](LICENSE). Free for any city to use, change and share.
+
+## Browser tests
+
+```
+npx playwright test --project=chrome-phone
+npx playwright test --project=chrome-desktop
+```
+
+Run each project on its own, because they share one throwaway database (`utilities_e2e`, rebuilt every run, so
+point `E2E_ADMIN_URL` at a database owner account first). Every test also runs an accessibility scan (axe,
+WCAG 2.0 to 2.2 A and AA rules) and checks that no page scrolls sideways.
+
+The test server in `e2e/server.ts` has test-only routes that read sign-in codes and fake a payment. It is
+never part of the production image.
+
+## Browser support
+
+| Browser | Status |
+|---|---|
+| Chrome, phone-size window | Tested on every change |
+| Chrome, desktop window | Tested on every change |
+| Edge | Same engine as Chrome. Not run separately yet |
+| Firefox | Config is ready, not run yet |
+| Safari (WebKit) and iPhone | Config is ready, not run yet |
+
+To run the rest on your own computer:
+
+```
+npx playwright install firefox webkit msedge
+ALL_BROWSERS=1 npx playwright test --project=firefox-desktop
+ALL_BROWSERS=1 npx playwright test --project=safari-desktop
+ALL_BROWSERS=1 npx playwright test --project=iphone
+ALL_BROWSERS=1 npx playwright test --project=edge-desktop
+```
+
+Automated scans do not catch everything. Before launch, try the screens with a screen reader (NVDA on
+Windows, VoiceOver on iPhone) and on a real phone.
+
+## Demo mode
+
+A new city made with the bootstrap script starts in demo mode, so a pilot can never be mistaken for the real system. While it is on:
+
+- every page shows a yellow bar saying this is a demo, and a faint DEMO sits behind the pages (hidden from screen readers);
+- search engines are told to stay away (`X-Robots-Tag` header and `robots.txt`);
+- real payment processors are refused, including autopay runs. The built-in fake processor still works for trying things out.
+
+Turn it off under Administration, Colors, logo and demo mode, or start a city already official with `npm run bootstrap -- ... --official`. Cities created before this setting existed are not in demo mode.

@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <meta name="theme-color" content="#0b4f8a">
+  <title>Utilities</title>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="stylesheet" href="/assets/app.css">
+  <link rel="stylesheet" href="/theme.css">
+</head>
+<body>
+  <a class="skip" href="#main">Skip to main content</a>
+  <div id="demo" class="demo-bar" role="note" hidden></div>
+  <header class="top">
+    <a class="brand" href="/" id="brand">Utilities</a>
+    <div class="top-tools">
+      <div class="textsize" role="group" aria-label="Text size">
+        <button type="button" data-size="100" aria-label="Normal text size">A</button>
+        <button type="button" data-size="125" aria-label="Large text size">A</button>
+        <button type="button" data-size="150" aria-label="Extra large text size">A</button>
+      </div>
+      <button type="button" class="linkish" id="signout" hidden>Sign out</button>
+    </div>
+  </header>
+  <div id="banner" class="banner" role="status" hidden></div>
+  <main id="main" tabindex="-1"><p class="loading">Loading...</p></main>
+  <nav id="tabs" aria-label="Main menu" hidden></nav>
+  <footer id="foot" class="foot"></footer>
+  <div id="live" class="sr" aria-live="polite" role="status"></div>
+  <dialog id="dlg" aria-labelledby="dlg-title"></dialog>
+  <noscript><p class="noscript">This website needs JavaScript. Please turn it on, or call City Hall for help with your bill.</p></noscript>
+  <script type="module" src="/assets/js/main.js"></script>
+</body>
+</html>
