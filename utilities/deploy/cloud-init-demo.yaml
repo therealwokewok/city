@@ -1,5 +1,7 @@
 #cloud-config
-# Builds a demo server on a fresh Ubuntu cloud image. Replace the three values marked CHANGE before use.
+# Builds or updates a demo server on an Ubuntu cloud image. Safe to run again: it pulls the latest
+# code, keeps the existing database and passwords, and only adds what is missing.
+# Change the values in the "settings" block of install-demo.sh before using it for another city.
 ssh_pwauth: false
 package_update: true
 packages: [git, ca-certificates, curl, ufw]
@@ -9,19 +11,40 @@ write_files:
     content: |
       #!/bin/sh
       set -e
-      curl -fsSL https://get.docker.com | sh
+      # ---- settings ----
+      HOSTS="utilities.osceolamo.com, utilities-test.osceolamo.com"
+      MAIN_HOST=utilities.osceolamo.com
+      ADMIN_EMAIL=coryscline@gmail.com
+      TEST_DOMAIN=corycline.com
+      EMAIL_API_URL=https://utilities-mail-relay.city-of-osceola-missouri.workers.dev
+      EMAIL_FROM=utilities-demo@osceolamo.com
+      # ------------------
+      command -v docker >/dev/null || curl -fsSL https://get.docker.com | sh
       ufw allow 22/tcp; ufw allow 80/tcp; ufw allow 443/tcp; ufw --force enable
-      git clone https://github.com/therealwokewok/city /opt/city
+      if [ -d /opt/city/.git ]; then git -C /opt/city fetch -q origin && git -C /opt/city reset -q --hard origin/main
+      else git clone https://github.com/therealwokewok/city /opt/city; fi
       cd /opt/city/utilities/deploy
-      cat > .env <<ENV
-      DEMO_HOST=utilities.osceolamo.com
-      DEMO_ADMIN_EMAIL=coryscline@gmail.com
-      OWNER_PASSWORD=$(head -c 24 /dev/urandom | base64 | tr -dc A-Za-z0-9)
-      APP_PASSWORD=$(head -c 24 /dev/urandom | base64 | tr -dc A-Za-z0-9)
-      ENV
-      chmod 600 .env
+      if [ ! -f .env ]; then
+        printf 'OWNER_PASSWORD=%s\nAPP_PASSWORD=%s\n' "$(head -c 24 /dev/urandom | base64 | tr -dc A-Za-z0-9)" "$(head -c 24 /dev/urandom | base64 | tr -dc A-Za-z0-9)" > .env
+        chmod 600 .env
+      fi
+      setkey() { grep -v "^$1=" .env > .env.new || true; printf '%s=%s\n' "$1" "$2" >> .env.new; mv .env.new .env; chmod 600 .env; }
+      setkey DEMO_HOST "\"$HOSTS\""
+      setkey DEMO_ADMIN_EMAIL "$ADMIN_EMAIL"
+      setkey EMAIL_API_URL "$EMAIL_API_URL"
+      setkey EMAIL_API_TOKEN "not-a-secret-the-relay-checks-the-caller-ip"
+      setkey EMAIL_FROM "$EMAIL_FROM"
       docker compose -f docker-compose.demo.yml up -d --build
       . ./.env
-      docker compose -f docker-compose.demo.yml exec -T -e OWNER_DATABASE_URL=postgres://utilities_owner:$OWNER_PASSWORD@db:5432/utilities -e DEMO_HOSTS=$DEMO_HOST -e DEMO_ADMIN_EMAIL=$DEMO_ADMIN_EMAIL app node dist/scripts/seed.js > /var/log/demo-seed.log 2>&1 || true
+      OWN="postgres://utilities_owner:$OWNER_PASSWORD@db:5432/utilities"
+      psql() { docker compose -f docker-compose.demo.yml exec -T db psql -U utilities_owner -d utilities -tAc "$1"; }
+      if [ "$(psql 'select count(*) from cities')" = "0" ]; then
+        docker compose -f docker-compose.demo.yml exec -T -e OWNER_DATABASE_URL="$OWN" -e DEMO_HOSTS="$MAIN_HOST" -e DEMO_ADMIN_EMAIL="$ADMIN_EMAIL" app node dist/scripts/seed.js > /var/log/demo-seed.log 2>&1
+      fi
+      for h in $(echo "$HOSTS" | tr ',' ' '); do
+        psql "update cities set hosts = array_append(hosts, '$h') where '$MAIN_HOST' = any(hosts) and not '$h' = any(hosts)"
+      done
+      docker compose -f docker-compose.demo.yml exec -T -e OWNER_DATABASE_URL="$OWN" app node dist/scripts/test-users.js "$MAIN_HOST" "$TEST_DOMAIN" > /var/log/demo-test-users.log 2>&1
+      echo "demo ready $(date -u)"
 runcmd:
   - [sh, -c, "/usr/local/bin/install-demo.sh > /var/log/install-demo.log 2>&1"]
