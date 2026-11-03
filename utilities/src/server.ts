@@ -966,7 +966,10 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   const loadProfile = async (c: import('pg').PoolClient, id: string, kind?: 'bill' | 'envelope') => {
     const p = (await c.query('select kind, name, config from print_profiles where id = $1', [id])).rows[0];
     if (!p || (kind && p.kind !== kind)) throw notFound('Print profile not found');
-    return { kind: p.kind as 'bill' | 'envelope', name: p.name as string, profile: validateProfile(p.kind, p.config) };
+    let profile;
+    try { profile = validateProfile(p.kind, p.config); }
+    catch (e) { throw bad(`The layout "${p.name}" cannot be printed yet: ${e instanceof Error ? e.message.replace(/^invalid print profile: /, '') : 'check it'}. Fix it under Administration, Printing.`); }
+    return { kind: p.kind as 'bill' | 'envelope', name: p.name as string, profile };
   };
   const pdf = (reply: import('fastify').FastifyReply, buf: Buffer, name: string) =>
     reply.header('content-type', 'application/pdf').header('content-disposition', `inline; filename="${name}"`).send(buf);

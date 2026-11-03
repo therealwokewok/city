@@ -417,3 +417,11 @@ describe('colors, logo and update source', () => {
     expect((await call('clerk', 'GET', '/api/staff/updates')).status).toBe(403);
   });
 });
+
+describe('print layouts', () => {
+  it('a layout with nothing on it is refused, so bills never print as blank pages', async () => {
+    const r = await call('admin', 'POST', '/api/staff/print-profiles', { kind: 'bill', name: 'Empty', config: { units: 'in', page: { width: 8.5, height: 11 }, fields: [] } });
+    expect(r.status).toBe(400);
+    expect(JSON.stringify(r.json)).toMatch(/blank/);
+  });
+});

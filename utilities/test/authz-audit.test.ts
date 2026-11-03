@@ -534,3 +534,15 @@ describe('money controls in settings and penalties (run last)', () => {
     expect({ status: r.status, penalizedBeforeDue: notDue }).toEqual({ status: 400, penalizedBeforeDue: 0 });
   });
 });
+
+describe('staff who take calls can see bills', () => {
+  it('a cashier and customer service see posted bills on the account page', async () => {
+    for (const u of ['cashier', 'cs']) {
+      const r = await call(u, 'GET', `/api/staff/accounts/${acct.a1}`);
+      expect(r.status, u).toBe(200);
+      expect(Array.isArray(r.json.bills), u).toBe(true);
+    }
+    const n = Number((await owner.query(`select count(*) as n from bills where account_id = $1 and status = 'posted'`, [acct.a1])).rows[0].n);
+    expect((await call('cashier', 'GET', `/api/staff/accounts/${acct.a1}`)).json.bills.length).toBe(Math.min(n, 12));
+  });
+});

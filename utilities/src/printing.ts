@@ -32,6 +32,7 @@ export function validateProfile(kind: 'bill' | 'envelope', cfg: any): PrintProfi
   const wPt = w * PT[cfg.units as Units], hPt = h * PT[cfg.units as Units];
   if (wPt < 72 || hPt < 72 || wPt > 72 * 40 || hPt > 72 * 40) bad('page size looks wrong; check the units');
   if (!Array.isArray(cfg.fields) || cfg.fields.length > 60) bad('fields must be a list of up to 60');
+  if (cfg.fields.length === 0) bad('add at least one item to print, or the pages come out blank');
   const allowed = kind === 'bill' ? BILL_SOURCES : ENVELOPE_SOURCES;
   for (const f of cfg.fields as Field[]) {
     if (!allowed.includes(f.source)) bad(`unknown field source ${String(f.source).slice(0, 40)}`);

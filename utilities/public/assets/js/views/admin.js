@@ -325,6 +325,30 @@ const BILL_SOURCES = ['static', 'city.name', 'city.return_address', 'city.remit_
 const ENV_SOURCES = ['static', 'city.name', 'return_address', 'recipient'];
 const UNIT_LABEL = { in: 'inches', mm: 'millimeters', pt: 'points (72 to an inch)' };
 
+// A new layout starts filled in, so nobody prints blank pages. Positions fit US letter paper folded in three for a
+// #10 window envelope, and a plain #10 envelope. Staff move things to match their own paper.
+const STARTER = {
+  bill: { units: 'in', page: { width: 8.5, height: 11 }, fields: [
+    { source: 'city.name', x: 0.5, y: 0.5, size: 14 },
+    { source: 'city.return_address', x: 0.5, y: 0.8, size: 9, width: 3 },
+    { source: 'account.number', x: 5, y: 0.5, size: 10, label: 'Account: ' },
+    { source: 'bill.period', x: 5, y: 0.75, size: 10, label: 'Service: ' },
+    { source: 'bill.due', x: 5, y: 1, size: 10, label: 'Due: ' },
+    { source: 'account.name', x: 1, y: 2.1, size: 11 },
+    { source: 'account.mailing_address', x: 1, y: 2.3, size: 11, width: 3.5 },
+    { source: 'account.service_address', x: 5, y: 1.25, size: 9, width: 3 },
+    { source: 'bill.lines', x: 0.5, y: 4, size: 10, width: 7.5 },
+    { source: 'bill.total', x: 5, y: 7.2, size: 13, label: 'Total due: ' },
+    { source: 'static', x: 0.5, y: 9, size: 9, text: 'Please return this part with your payment.' },
+    { source: 'city.remit_to', x: 0.5, y: 9.3, size: 10, width: 4 },
+    { source: 'city.office_hours', x: 0.5, y: 10.4, size: 8, width: 7.5 },
+  ] },
+  envelope: { units: 'in', page: { width: 9.5, height: 4.125 }, fields: [
+    { source: 'return_address', x: 0.35, y: 0.3, size: 9, width: 3 },
+    { source: 'recipient', x: 4.25, y: 2, size: 12, width: 4.5 },
+  ] },
+};
+
 export const printing = safe(async () => {
   const { profiles } = await api('GET', '/api/staff/print-profiles');
   const canManage = has('city_admin');
@@ -340,7 +364,7 @@ export const printing = safe(async () => {
           h('span', { class: 'actions row' },
             h('a', { class: 'btn small secondary', href: `/api/staff/print/test/${p.id}`, target: '_blank', rel: 'noopener' }, 'Print a test page'),
             canManage ? h('button', { class: 'btn small', type: 'button', onclick: () => editor(p) }, 'Change') : null))))) : h('p', { class: 'muted' }, none),
-        canManage ? h('div', { class: 'actions' }, h('button', { class: 'btn secondary', type: 'button', onclick: () => editor({ kind, name: '', config: { units: 'in', page: { width: '', height: '' }, fields: [] } }) }, kind === 'bill' ? 'Add a bill layout' : 'Add an envelope layout')) : null));
+        canManage ? h('div', { class: 'actions' }, h('button', { class: 'btn secondary', type: 'button', onclick: () => editor({ kind, name: '', config: STARTER[kind] }) }, kind === 'bill' ? 'Add a bill layout' : 'Add an envelope layout')) : null));
     }
     return out;
   }

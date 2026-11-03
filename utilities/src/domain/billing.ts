@@ -247,13 +247,13 @@ export async function shutoffList(c: pg.PoolClient, asOf: string) {
 }
 
 /**
- * Posted bills, newest first, each with how much of it is still owed. What is owed is the account balance, counted
- * against the newest bills first, so a partial payment shows the older bill as paid and the newest as partly paid.
+ * Posted bills, latest due date first, each with how much of it is still owed. Payments count toward the oldest
+ * bill first (the one due soonest), so what is still owed sits on the latest bills. This matches the shutoff list.
  */
 export async function billsWithStatus(c: pg.PoolClient, accountId: string, limit = 24) {
   const bills = (await c.query(
     `select id, lines, total_cents, due_date, posted_at, period_start, period_end from bills
-     where account_id = $1 and status = 'posted' order by posted_at desc, id desc limit $2`, [accountId, limit])).rows;
+     where account_id = $1 and status = 'posted' order by due_date desc, posted_at desc, id desc limit $2`, [accountId, limit])).rows;
   let left = Math.max(0, Number(await balance(c, accountId)));
   for (const b of bills) {
     const t = Number(b.total_cents);

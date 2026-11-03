@@ -129,3 +129,20 @@ describe('payment plans', () => {
     await tx(S.ctx('approver2'), (c) => decideArrangement(c, S.users.approver2.id, r.id, { decision: 'decline', note: 'Please pay the first half now' }));
   });
 });
+
+describe('bill status order', () => {
+  it('payments count toward the bill due first, even when a later month was billed first', async () => {
+    const S2 = await seedCity('order');
+    const mk = async (start: string, end: string, due: string) => {
+      const id = await tx(S2.ctx('clerk'), (c) => createRun(c, S2.users.clerk.id, { period_start: start, period_end: end, due_date: due }));
+      await tx(S2.ctx('clerk'), (c) => calculateRun(c, S2.users.clerk.id, id));
+      await tx(S2.ctx('approver'), (c) => approveRun(c, S2.users.approver.id, id));
+    };
+    await mk('2026-10-01', '2026-10-31', '2026-11-20'); // October billed first
+    await mk('2026-09-01', '2026-09-30', '2026-10-15'); // then a late September run
+    await tx(S2.ctx('cashier'), (c) => recordCounterPayment(c, S2.users.cashier.id, { account_id: S2.accounts.a2, amount_cents: 1800, method: 'cash' }));
+    const bills = await tx(S2.ctx('clerk'), (c) => billsWithStatus(c, S2.accounts.a2));
+    expect(bills.map((b) => [String(b.due_date).slice(0, 10) || b.due_date, b.pay_status])).toEqual([
+      [expect.stringMatching(/2026-11-20|Nov 20/), 'unpaid'], [expect.stringMatching(/2026-10-15|Oct 15/), 'paid']]);
+  });
+});
