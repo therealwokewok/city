@@ -15,6 +15,35 @@ function loadStripe() {
 
 const cssVar = (name, fallback) => getComputedStyle(document.documentElement).getPropertyValue(name).trim() || fallback;
 
+// Stripe draws its own boxes, so it is told the page's colors. In dark mode that means its "night" theme with our
+// card color behind the fields, or the tabs (Card, Apple Pay, US bank account) turn white with pale, unreadable labels.
+function appearance() {
+  const dark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+  const card = cssVar('--card', dark ? '#1b2128' : '#ffffff');
+  const text = cssVar('--text', dark ? '#f3f3f3' : '#1a1a1a');
+  const line = dark ? cssVar('--line', '#8b95a1') : '#8a857b';
+  const soft = dark ? cssVar('--soft-line', '#3a434d') : '#d9d4c9';
+  return {
+    theme: dark ? 'night' : 'stripe',
+    labels: 'above',
+    variables: {
+      colorPrimary: cssVar('--accent', dark ? '#8cc4ff' : '#0b4f8a'), colorText: text, colorTextSecondary: cssVar('--muted', dark ? '#cfd3d8' : '#5a5a5a'),
+      colorTextPlaceholder: dark ? '#9aa3ad' : '#767676', colorDanger: dark ? '#ffb0b0' : '#9b1c1c', colorBackground: card,
+      fontFamily: '"Libre Franklin", "Segoe UI", Arial, sans-serif', fontSizeBase: '18px', borderRadius: '6px', spacingUnit: '5px', focusBoxShadow: '0 0 0 3px #ffbf47',
+    },
+    rules: {
+      '.Input': { border: `3px solid ${line}`, padding: '14px', backgroundColor: card, color: text },
+      '.Label': { fontWeight: '700', color: text },
+      '.Tab': { border: `3px solid ${soft}`, backgroundColor: card, color: text },
+      '.Tab:hover': { color: text },
+      '.Tab--selected': { borderColor: cssVar('--accent', '#0b4f8a'), color: text },
+      '.TabIcon': { fill: text }, '.TabIcon--selected': { fill: cssVar('--accent', '#0b4f8a') },
+      '.TabLabel': { color: text }, '.TabLabel--selected': { color: cssVar('--accent', '#0b4f8a') },
+      '.Block': { backgroundColor: card, borderColor: soft },
+    },
+  };
+}
+
 /** Shows the Payment Element in `host`. Returns { stripe, elements } for confirming. */
 // With `amount` (and no clientSecret) the form only collects the details; the charge is made later by the server,
 // after any fee is worked out. With `clientSecret` it works on a payment or setup that already exists.
@@ -25,16 +54,7 @@ export async function mountPaymentElement(host, { publishableKey, clientSecret, 
   const elements = stripe.elements({
     ...(clientSecret ? { clientSecret } : { mode: 'payment', amount, currency: 'usd', paymentMethodTypes: ['card', 'us_bank_account'] }),
     fonts: [font('libre-franklin-latin-400-normal.woff2', 400), font('libre-franklin-latin-600-normal.woff2', 600), font('libre-franklin-latin-700-normal.woff2', 700)],
-    appearance: {
-      theme: 'stripe',
-      labels: 'above',
-      variables: {
-        colorPrimary: cssVar('--accent', '#0b4f8a'), colorText: cssVar('--text', '#1a1a1a'), colorDanger: '#9b1c1c',
-        colorBackground: '#ffffff', fontFamily: '"Libre Franklin", "Segoe UI", Arial, sans-serif', fontSizeBase: '18px',
-        borderRadius: '6px', spacingUnit: '5px', focusBoxShadow: '0 0 0 3px #ffbf47',
-      },
-      rules: { '.Input': { border: '3px solid #8a857b', padding: '14px' }, '.Label': { fontWeight: '700' }, '.Tab': { border: '3px solid #d9d4c9' } },
-    },
+    appearance: appearance(),
   });
   const pe = elements.create('payment', { layout: 'tabs' });
   await new Promise((resolve, reject) => {
