@@ -32,3 +32,19 @@ This is a summary, not legal advice. Confirm with Stripe and the city attorney.
 - **All cards ("service fee"):** Visa's Service Fee Program covers utilities (category 4900) and has its own rules. Use the "all cards" setting only after the city has enrolled.
 - **Bank (ACH) payments** are not covered by card company rules.
 - Autopay charges never add a fee. If the city wants a fee on autopay, the customer must be told when they sign up.
+
+## Apple Pay and Google Pay
+
+Both work inside the same Stripe payment boxes, with no new setup for Google Pay: it appears on its own on Android
+phones and in Chrome. Apple Pay appears on iPhones, iPads and Safari once the city's web address has been checked
+by Stripe. A city administrator does that with one button in City settings ("Turn on Apple Pay for this web
+address"); the app serves the file Apple looks for at `/.well-known/apple-developer-merchantid-domain-association`
+(Stripe publishes it; it holds no secret), registers the address with Stripe, and reports whether Apple Pay is on.
+Do it once per address people use (for example both `utilities.city.gov` and `www.utilities.city.gov`).
+
+The fee rules apply to the card inside the wallet: a debit card in Apple Pay pays no credit-card fee, and the review
+step says so ("Paying with: Apple Pay, Visa debit card ending 4242").
+
+Card safety (PCI): nothing changes. The phone hands the card to Stripe directly; the city's server never sees a card
+number, with or without a wallet, so the city stays in the simplest category (SAQ A), the same as with the card
+boxes alone.

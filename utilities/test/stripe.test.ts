@@ -59,3 +59,28 @@ describe('Stripe Payment Element adapter', () => {
     expect(a.verifyWebhook(raw, signStripe(raw, 'whsec'))).toMatchObject({ type: 'setup_complete', setupRef: 'seti_1', accountId: 'acc-1' });
   });
 });
+
+describe('Apple Pay and Google Pay', () => {
+  it('sees the wallet behind a card token and names it, while the fee still follows the card itself', async () => {
+    const { f } = fakeStripe({ confirmation_tokens: { payment_method_preview: { type: 'card', card: { funding: 'debit', brand: 'visa', last4: '4242', wallet: { type: 'apple_pay' } } } } });
+    const m = await new StripeAdapter('sk_test_x', 'w', 300, f).inspectToken('ctoken_1');
+    expect(m).toEqual({ type: 'card', funding: 'debit', brand: 'visa', last4: '4242', wallet: 'apple_pay' });
+    const { methodLabel } = await import('../src/fees.js');
+    expect(methodLabel(m)).toBe('Apple Pay, Visa debit card ending 4242');
+  });
+  it('registers the web address with Stripe and reports whether Apple Pay is on', async () => {
+    const { f, calls } = fakeStripe({ 'payment_method_domains/pmd_1/validate': { id: 'pmd_1', apple_pay: { status: 'active' }, google_pay: { status: 'active' } },
+      payment_method_domains: { id: 'pmd_1', apple_pay: { status: 'inactive', status_details: { error_message: 'file missing' } }, google_pay: { status: 'active' } } });
+    const r = await new StripeAdapter('sk_test_x', 'w', 300, f).registerDomain('utilities.example.gov');
+    expect(calls[0].body!.get('domain_name')).toBe('utilities.example.gov');
+    expect(calls[1].path).toBe('payment_method_domains/pmd_1/validate');
+    expect(r).toMatchObject({ apple_pay: true, google_pay: true });
+    await expect(new StripeAdapter('sk_test_x', 'w', 300, f).registerDomain('bad domain')).rejects.toThrow(/bad domain/);
+  });
+  it('serves the Apple domain file from Stripe once, and never from the fake processor', async () => {
+    let n = 0;
+    const f = (async (url: string) => { n++; return new Response(url.includes('apple-pay') ? 'APPLE-FILE' : '{}', { status: 200 }); }) as unknown as typeof fetch;
+    const a = new StripeAdapter('sk_test_x', 'w', 300, f);
+    expect(await a.appleDomainFile()).toBe('APPLE-FILE'); expect(await a.appleDomainFile()).toBe('APPLE-FILE'); expect(n).toBe(1);
+  });
+});

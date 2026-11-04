@@ -229,6 +229,22 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
     return { enabled: true, repo: s.update_repo, ...updateCache.info };
   });
 
+  // Apple Pay: the city administrator turns it on for the address people use. Google Pay needs nothing.
+  app.post('/api/staff/payments/wallets', async (req) => {
+    need(req, 'settings.money');
+    if (!deps.payments.registerDomain) return { supported: false };
+    const domain = req.cityHost!;
+    if (!/^[a-z0-9.-]+\.[a-z]{2,}$/.test(domain)) throw bad('Apple Pay needs a real web address, not localhost or an IP address');
+    try { const r = await deps.payments.registerDomain(domain); await tx(ctxOf(req), (c) => audit(c, me(req), 'payments.wallets', { domain, ...r })); return { supported: true, domain, ...r }; }
+    catch (e: any) { return { supported: true, domain, apple_pay: false, google_pay: true, problem: e.message?.slice(0, 200) }; }
+  });
+  // The file Apple checks when a domain is registered. Stripe publishes it; it holds no secret.
+  app.get('/.well-known/apple-developer-merchantid-domain-association', async (_req, reply) => {
+    if (!deps.payments.appleDomainFile) return reply.code(404).type('text/plain').send('Not found');
+    try { return reply.type('text/plain').header('cache-control', 'public, max-age=86400').send(await deps.payments.appleDomainFile()); }
+    catch { return reply.code(503).type('text/plain').send('Not available right now'); }
+  });
+
   app.get('/healthz', async () => ({ ok: true }));
   app.get('/api/city', async (req) => tx(baseCtx(req), async (c) => {
     const s = await loadSettings(c);

@@ -41,6 +41,14 @@ export interface PaymentsAdapter {
     Promise<{ ref: string; status: string; clientSecret?: string }>;
   /** Finds the processor's reference for one of our payments when we never saved it. */
   findPaymentRef?(paymentId: string): Promise<string | undefined>;
+  /**
+   * Apple Pay works only on a web address the processor has checked. This registers one and reports whether Apple
+   * Pay is now on for it. Google Pay needs nothing. Card details still never touch this server (the phone hands
+   * them to the processor), so the city's PCI position is unchanged.
+   */
+  registerDomain?(domain: string): Promise<{ apple_pay: boolean; google_pay: boolean; problem?: string }>;
+  /** The file Apple fetches from /.well-known/ to check the address. Empty when the processor has none. */
+  appleDomainFile?(): Promise<string>;
   /** false for test keys: nothing real moves, so a demo may use them. */
   live?: boolean;
   createCheckout(r: CheckoutRequest): Promise<ClientStart>;
@@ -90,9 +98,27 @@ export class StripeAdapter implements PaymentsAdapter {
     if (pm.type === 'us_bank_account') return { type: 'ach', bank: pm.us_bank_account?.bank_name, last4: pm.us_bank_account?.last4 };
     if (pm.type === 'card' || pm.type === 'link') {
       const f = pm.card?.funding;
-      return { type: 'card', funding: f === 'credit' || f === 'debit' || f === 'prepaid' ? f : 'unknown', brand: pm.card?.brand, last4: pm.card?.last4 };
+      // Apple Pay and Google Pay are cards the phone holds; the fee follows the card's own kind (credit or debit).
+      const w = pm.card?.wallet?.type ?? (pm.type === 'link' ? 'link' : undefined);
+      return { type: 'card', funding: f === 'credit' || f === 'debit' || f === 'prepaid' ? f : 'unknown', brand: pm.card?.brand, last4: pm.card?.last4,
+        ...(w === 'apple_pay' || w === 'google_pay' || w === 'link' ? { wallet: w } : {}) };
     }
     throw new Error('That way of paying is not accepted');
+  }
+
+  async registerDomain(domain: string) {
+    if (!/^[a-z0-9.-]+$/i.test(domain)) throw new Error('bad domain');
+    let d = await this.stripe('POST', 'payment_method_domains', new URLSearchParams({ domain_name: domain, enabled: 'true' }));
+    if (d.apple_pay?.status !== 'active') d = await this.stripe('POST', `payment_method_domains/${d.id}/validate`).catch(() => d);
+    return { apple_pay: d.apple_pay?.status === 'active', google_pay: d.google_pay?.status === 'active', problem: d.apple_pay?.status_details?.error_message };
+  }
+  private appleFile?: Promise<string>;
+  async appleDomainFile() {
+    // Stripe publishes the file; it is the same for every Stripe account. Fetched once, kept for the life of the process.
+    this.appleFile ??= this.fetchImpl('https://stripe.com/files/apple-pay/apple-developer-merchantid-domain-association')
+      .then(async (r) => { if (!r.ok) throw new Error('could not fetch the Apple Pay file'); return r.text(); })
+      .catch((e) => { this.appleFile = undefined; throw e; });
+    return this.appleFile;
   }
 
   async chargeWithToken(r: { paymentId: string; totalCents: number; feeCents: number; token: string; description: string; customerEmail?: string; returnUrl: string }) {

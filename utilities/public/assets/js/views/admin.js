@@ -60,6 +60,25 @@ function feeFields(s) {
   return box;
 }
 
+// Apple Pay and Google Pay inside the same Stripe boxes. The phone hands the card to Stripe, so nothing changes for
+// the city's card-safety (PCI) position. Apple needs the web address checked once; this button does that.
+function walletBox() {
+  const msg = h('div', { role: 'status' });
+  const btn = h('button', { class: 'btn secondary', type: 'button' }, 'Turn on Apple Pay for this web address');
+  btn.addEventListener('click', async () => {
+    try {
+      const r = await busy(btn, 'Checking with Stripe...', () => api('POST', '/api/staff/payments/wallets', {}));
+      if (!r.supported) { fill(msg, h('p', { class: 'notice warn' }, 'This payment company does not offer Apple Pay here.')); return; }
+      fill(msg, r.apple_pay ? h('p', { class: 'notice' }, `✓ Apple Pay is on for ${r.domain}. Google Pay is ${r.google_pay ? 'on too' : 'not on'}.`)
+        : h('p', { class: 'notice warn' }, `Apple Pay is not on yet for ${r.domain}. ${r.problem || 'Stripe could not check the address. Make sure the site is reachable from the internet and try again.'}`));
+    } catch (e) { showError(msg, e.message); }
+  });
+  return h('div', { class: 'addbox' }, h('h2', {}, 'Apple Pay and Google Pay'),
+    h('p', {}, 'People can pay with the card on their phone. It shows up on its own in the payment boxes: Google Pay on Android and Chrome, Apple Pay on iPhones, iPads and Safari once the web address is checked. The fee rules above apply to the card inside the wallet.'),
+    h('p', { class: 'hint' }, 'Card numbers never reach the city. The phone sends them straight to Stripe, so the city\'s card-safety (PCI) position stays the same.'),
+    msg, h('div', { class: 'actions' }, btn));
+}
+
 export const settings = safe(async () => {
   const s = await api('GET', '/api/staff/settings');
   // Charges, due dates, fees and approval limits are for the city administrator only.
@@ -78,6 +97,7 @@ export const settings = safe(async () => {
     field({ id: 'factor', label: 'Flag a meter reading that uses this many times the last use', hint: 'For example 3 catches a reading that is three times higher than last time', inputmode: 'decimal', value: s.high_usage_factor }),
     field({ id: 'stepup', label: 'Minutes a safety check stays good', hint: 'Staff retype an emailed code before risky actions. This is how long it lasts, from 1 to 30 minutes.', inputmode: 'numeric', value: s.stepup_minutes }),
     lock(feeFields(s)),
+    money ? walletBox() : null,
     money ? null : h('p', { class: 'notice warn' }, 'Late charges, due dates, fees and approval limits can only be changed by a city administrator.'),
     h('div', { class: 'actions' }, h('button', { class: 'btn', type: 'submit' }, 'Save settings')));
   const msg = h('div');
@@ -481,7 +501,7 @@ const ACTION = {
   'approval.reject': 'Turned down a bill change', 'charge.create': 'Added a one-time charge', 'dispute.open': 'A resident asked about a bill',
   'dispute.resolve': 'Answered a bill question', 'ledger.reverse': 'Reversed a ledger entry', 'meter.create': 'Added a meter',
   'penalty.run': 'Added late charges', 'account.create': 'Added a customer account', 'account.linkcode.regen': 'Made a new link code',
-  'account.service': 'Changed a customer service', 'request.create': 'A resident made a service request', 'request.update': 'Updated a service request', 'auth.login': 'Signed in', 'auth.stepup': 'Passed a safety check', 'city.bootstrap': 'City was set up',
+  'account.service': 'Changed a customer service', 'request.create': 'A resident made a service request', 'request.update': 'Updated a service request', 'auth.login': 'Signed in', 'auth.stepup': 'Passed a safety check', 'city.bootstrap': 'City was set up', 'payments.wallets': 'Turned on Apple Pay for the web address',
 };
 const humanAction = (a) => ACTION[a] || a.replace(/[._]/g, ' ').replace(/^./, (c) => c.toUpperCase());
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;

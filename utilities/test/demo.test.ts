@@ -29,6 +29,14 @@ describe('demo mode', () => {
     expect((await app2.inject({ method: 'GET', url: '/robots.txt', headers: { host: S.host } })).body).toContain('Disallow: /\n');
     await app2.close();
   });
+  it('has no Apple Pay file with the pretend processor, and the real one serves it without a sign-in', async () => {
+    expect((await get('/.well-known/apple-developer-merchantid-domain-association')).statusCode).toBe(404);
+    const f = (async (url: string) => new Response(url.includes('apple-pay') ? 'APPLE-FILE' : '{}', { status: 200 })) as unknown as typeof fetch;
+    const app2 = await buildApp({ quiet: true, email: new MemoryEmail(), payments: new StripeAdapter('sk_test_x', 'w', 300, f) });
+    const r = await app2.inject({ method: 'GET', url: '/.well-known/apple-developer-merchantid-domain-association', headers: { host: S.host } });
+    expect(r.statusCode).toBe(200); expect(r.body).toBe('APPLE-FILE');
+    await app2.close();
+  });
   it('refuses real payment processors but lets the fake one through', async () => {
     const ctx = { cityId: S.cityId, userId: null, perms: [] };
     await expect(tx(ctx, (c) => assertMoneyAllowed(c, { name: 'stripe' }))).rejects.toThrow(/turned off while this is a demo/);

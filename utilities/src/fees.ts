@@ -14,7 +14,7 @@ import type { CitySettings } from './settings.js';
  *    That is card_fee = 'all', and only after the city has enrolled.
  *  - Bank (ACH) payments are not covered by card rules.
  */
-export type FeeMethod = { type: 'card'; funding: 'credit' | 'debit' | 'prepaid' | 'unknown'; brand?: string; last4?: string }
+export type FeeMethod = { type: 'card'; funding: 'credit' | 'debit' | 'prepaid' | 'unknown'; brand?: string; last4?: string; wallet?: 'apple_pay' | 'google_pay' | 'link' }
   | { type: 'ach'; bank?: string; last4?: string };
 
 export interface Fee { fee_cents: number; label: string | null; why_none?: string }
@@ -42,7 +42,8 @@ export function methodLabel(m: FeeMethod): string {
   if (m.type === 'ach') return `Bank account${m.bank ? ' at ' + m.bank : ''}${m.last4 ? ' ending ' + m.last4 : ''}`;
   const brand = m.brand ? m.brand.charAt(0).toUpperCase() + m.brand.slice(1) + ' ' : '';
   const kind = m.funding === 'unknown' ? 'card' : `${m.funding} card`;
-  return `${brand}${kind}${m.last4 ? ' ending ' + m.last4 : ''}`;
+  const wallet = m.wallet === 'apple_pay' ? 'Apple Pay, ' : m.wallet === 'google_pay' ? 'Google Pay, ' : m.wallet === 'link' ? 'Link, ' : '';
+  return `${wallet}${brand}${kind}${m.last4 ? ' ending ' + m.last4 : ''}`;
 }
 
 /** What the pay page tells people before they type a card, so nobody is surprised. */
