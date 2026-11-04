@@ -376,7 +376,8 @@ export const account = safe(async (id) => {
         out);
       const val = () => { const v = Number(f.querySelector('#fv').value.replace(/[,\s]/g, '')); if (!(v >= 0) || f.querySelector('#fv').value.trim() === '') throw new Error('Please type the right meter number.'); return v; };
       const show = (p) => fill(out, h('div', { class: 'notice' + (p.amount_cents > 0 ? ' warn' : '') },
-        h('p', {}, `Usage changes by ${p.usage_change > 0 ? '+' : ''}${p.usage_change.toLocaleString()} units.`),
+        h('p', {}, `Reading: ${p.old_value.toLocaleString()} → ${p.new_value.toLocaleString()}.`),
+        p.changes.map((ch) => h('p', {}, `${ch.reading_id === p.reading_id ? 'Usage from this reading' : 'Usage from the next reading'}: ${ch.old_usage.toLocaleString()} → ${ch.new_usage.toLocaleString()} units.`)),
         p.bills.length ? h('p', {}, p.amount_cents < 0 ? `The customer gets a credit of ${money(-p.amount_cents)}.` : p.amount_cents > 0 ? `The customer will owe ${money(p.amount_cents)} more.` : 'The bill does not change.')
           : h('p', {}, 'Not billed yet, so no money changes. The next bill will use the right number.'),
         p.bills.map((b) => h('p', { class: 'muted' }, `Bill ending ${plainDate(b.period_end)}: ${money(b.old_cents)} for these charges, should be ${money(b.new_cents)}.`)),

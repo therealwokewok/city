@@ -12,7 +12,8 @@
     "typecheck": "tsc --noEmit",
     "bootstrap": "tsx scripts/bootstrap.ts",
     "autopay": "tsx src/autopayCli.ts",
-    "test-users": "tsx scripts/test-users.ts"
+    "test-users": "tsx scripts/test-users.ts",
+    "screenshots": "playwright test -c playwright.screens.config.ts && node docs/screens/shrink.mjs"
   },
   "keywords": [],
   "author": "Cory Cline",
@@ -33,6 +34,7 @@
     "@types/node": "^26.6.6",
     "@types/pdfkit": "^0.17.7",
     "@types/pg": "^8.23.1",
+    "sharp": "^0.35.5",
     "tsx": "^4.23.15",
     "typescript": "^7.0.2",
     "vitest": "^5.1.0"

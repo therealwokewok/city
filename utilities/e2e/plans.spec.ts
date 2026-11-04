@@ -76,7 +76,7 @@ test('clerk fixes a misread meter, an approver approves, and the resident gets t
   await page.getByLabel('The right meter number').fill('1100');
   await page.getByLabel('What went wrong').fill('Reader wrote 1600, meter shows 1100');
   await page.getByRole('button', { name: 'Show what changes' }).click();
-  await expect(page.getByText('Usage changes by -500 units.')).toBeVisible();
+  await expect(page.getByText('Usage from this reading: 600 → 100 units.')).toBeVisible();
   await expect(page.getByText(/The customer gets a credit of \$/)).toBeVisible();
   expect((await axe(page)).violations).toEqual([]);
   await page.getByRole('button', { name: 'Send the fix' }).click();

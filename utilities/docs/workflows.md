@@ -2,7 +2,8 @@
 
 This is the reference for how the utility system is meant to be used, role by role, written from the user's chair.
 Use it to train staff, to check a new version before trusting it (the checklist at the end), and to settle "should I
-be able to do this?" questions. Every button name, message and email below is the real one.
+be able to do this?" questions. Every button name, message and email below is the real one, and the pictures are taken from the program itself
+with demo data (`npm run screenshots` retakes them after a change).
 
 The rule throughout: money moves only when two different people agree, every change is written to a log that cannot
 be edited, and nobody sees more than their job needs.
@@ -38,6 +39,14 @@ Contents: [Everyone](#everyone-signing-in-and-getting-around) · [Resident](#res
    button lands on the sign-in page, not the old screen. If the server ever drops a session, the next click shows
    "You were signed out to keep your account safe. Please sign in again."
 
+![Check your email](screens/all-check-email.png)
+
+
+![The sign-in page](screens/all-signin.png)
+
+![A half-typed address is caught before anything is sent](screens/all-signin-error.png)
+
+
 **Passkeys.** Under the sign-in form, "Or, if you set one up before:" **Sign in with a passkey** uses the
 fingerprint, face or PIN on the device. Cancelling it says "That was cancelled. You can use an emailed code
 instead." To set one up, anyone signed in presses **My sign-in options** in the footer. That page, **My sign-in**,
@@ -45,6 +54,9 @@ has a "Name for this device" box ("For example 'My phone'. Only you see this.") 
 device**; each saved passkey shows when it was added and last used, with a **Remove** button that asks "Remove this
 passkey? You can still sign in with an emailed code." The page ends "An emailed code always works too, so you can
 never be locked out."
+
+![My sign-in, where passkeys are added](screens/all-my-signin.png)
+
 
 **Single sign-on.** If the city has connected its own sign-in system, a **Sign in with your ...** button appears
 too. A failed attempt shows "That sign-in did not work. Your account may not be set up yet. You can still use an
@@ -71,6 +83,9 @@ sent a code to you@city.gov. Type it below." A fresh 8-digit code is emailed; ty
 **Cancel** (which shows "That action needs a quick safety check first." and changes nothing). Once passed, the check
 lasts for the number of minutes the city set (1 to 30, usually 10), so a run of approvals asks only once.
 
+![The safety check, here before approving a bill run](screens/all-safety-check.png)
+
+
 ---
 
 ## Resident (a customer)
@@ -92,11 +107,20 @@ lasts for the number of minutes the city set (1 to 30, usually 10), so a run of 
 3. On success the page jumps to **Your utility bills**. Another account (a rental, a shop) is added the same way
    from the **Add an account** tab or the "add another account" link at the bottom.
 
+![Connect your account](screens/res-connect.png)
+
+
+![Welcome: nothing linked yet](screens/res-welcome.png)
+
+
 ### Your utility bills (the home page)
 Each linked account is a card: the service address as the heading, "Account 1001" under it, then "You owe" (or
 "Your credit", or "Your balance") and the amount in large type. An account with nothing due shows "✓ You're all
 paid up" (or "✓ You have a credit"). Buttons: **Pay $84.20 now** (only when something is owed) and **See my bills
 and history**. At the bottom: "Start, stop or move my service or add another account".
+
+![Your utility bills](screens/res-home.png)
+
 
 ### See my bills and history (the account page)
 - The heading is the address, then "Account 1001", then a card with the balance and **Pay ... now** or "✓ Nothing
@@ -113,11 +137,20 @@ and history**. At the bottom: "Start, stop or move my service or add another acc
   ("Paper bills turned off" is read out to screen readers).
 - **Autopay** card (see below).
 
+![Paper bills and autopay, after a plan request](screens/res-paperless-autopay.png)
+
+
+![The account page, top to bottom](screens/res-account.png)
+
+
 ### Open a bill
 The page **Bill for October 2026** shows "Due November 15, 2026", the paid status, and a table "What you were
 charged for": each line's description, the units used with their name ("4,200 gallons used"), the meter number
 when the city bills per meter, "(2 at $5.00 each)" for quantities, and the total. Buttons: **Pay my whole balance:
 $84.20** and **Something looks wrong**.
+
+![One bill](screens/res-bill.png)
+
 
 **Something looks wrong** opens a box "What looks wrong?" ("For example: 'My water use seems too high.' A clerk will
 look at it and get back to you.") with **Send to City Hall**. After sending: "Thank you. City Hall got your message
@@ -125,6 +158,11 @@ and will contact you. You don't need to pay the part in question until it is che
 date is close." The question goes to the staff **Bill questions** queue. Only one open question per bill is
 allowed; a second attempt is refused with a plain message. The answer is not emailed; staff call or write to the
 customer, and the entry stays on the bill.
+
+![Asking about a bill](screens/res-bill-question.png)
+
+![After sending](screens/res-bill-question-sent.png)
+
 
 ### Pay your bill
 1. Press any **Pay ... now** button. The page **Pay your bill** shows the address and the choices:
@@ -162,6 +200,21 @@ customer, and the entry stays on the bill.
 5. Only the bill amount is credited to the account. The fee is recorded on the payment, not on the balance, and
    appears in the memo ("plus $2.74 fee paid").
 
+![Thank you](screens/res-pay-thanks-stripe.png)
+
+![The payment on the account, with the fee noted in the memo](screens/res-activity-fee.png)
+
+
+![Stripe's card and bank boxes, with the fee notice (from the demo site)](screens/res-pay-card.png)
+
+![Check your payment: the fee is its own line](screens/res-pay-review.png)
+
+
+![Pay your bill: the amount choices](screens/res-pay-choices.png)
+
+![Paying a different amount](screens/res-pay-partial.png)
+
+
 ### Autopay
 - The **Autopay** card on the account page says "Let us take your payment on the due date so you never pay late."
   with the note that details go into Stripe's boxes and the city never sees them. Press **Set up autopay**: Stripe's
@@ -196,6 +249,17 @@ customer, and the entry stays on the bill.
   **Ask for a payment plan** button is back.
 - The decision arrives by email either way: "Your payment plan was approved" or "About your payment plan request".
 
+![An approved plan](screens/res-plan-approved.png)
+
+![The plan amount offered first on the pay page](screens/res-pay-plan.png)
+
+
+![Waiting for the city](screens/res-plan-waiting.png)
+
+
+![Asking for a plan](screens/res-plan-ask.png)
+
+
 ### Service requests
 - The **Service requests** tab: "Need to start, stop or move your service? Pick one below. City Hall will take it
   from there." Under **Make a new request**: Start new service ("I am new in town, or moving to an address in
@@ -212,6 +276,20 @@ customer, and the entry stays on the bill.
 - **Your requests** lists each with a status: **Received**, **Scheduled**, **✓ Done** or **! Could not be done**,
   the account and date, and "From City Hall:" followed by any note staff wrote. A request never changes a bill by
   itself. At most three open leak reports per person.
+
+![Your requests, as received](screens/res-requests-list.png)
+
+![The same request after City Hall scheduled it and left a note](screens/res-requests-answered.png)
+
+
+![Request sent](screens/res-request-sent.png)
+
+
+![A move-out request](screens/res-request-move-out.png)
+
+
+![Service requests](screens/res-requests.png)
+
 
 ### A resident must NOT be able to
 - See, pay, or set up autopay or a plan on an account that is not linked to them. Typing another account's address
@@ -246,6 +324,17 @@ customer, and the entry stays on the bill.
    says "Still no signal. Your readings are safe on this phone." and sends on its own when signal returns.
 4. A reading far above normal is flagged for the office automatically; the reader does nothing extra.
 
+![Sent](screens/reader-sent.png)
+
+
+![Entering a reading](screens/reader-entry.png)
+
+![A lower number asks first](screens/reader-lower.png)
+
+
+![The meter list on a phone](screens/reader-list.png)
+
+
 ### Shutoff and reconnect orders
 1. The link "Shutoff and reconnect orders" at the top of the list opens **Shutoffs and reconnects**. Each order is a
    card: "Shut off: 12 Elm St" or "Turn back on: 12 Elm St", with the clerk's note if there is one. No names or
@@ -254,6 +343,9 @@ customer, and the entry stays on the bill.
    off 4:15 PM, tag on door"), and press **Mark done**. A confirmation asks "Is this done? Service is shut off at
    12 Elm St." with **Yes, it is done** / **Not yet**. The order leaves the list. With nothing waiting the page says
    "✓ No shutoff or reconnect orders right now."
+
+![Shutoff and reconnect orders](screens/reader-orders.png)
+
 
 ### A meter reader must NOT be able to
 - See any customer name, balance, bill, account number or payment, anywhere.
@@ -272,6 +364,9 @@ questions from residents" (**See questions**), "N service requests to handle" (*
 reconnect orders" (**See orders**), "Monthly billing" (**Open bill runs**), "Look up a customer" (**Find an
 account**), "People, settings, rates and printing" (**Open administration**).
 
+![Staff home for a billing clerk](screens/clerk-home.png)
+
+
 ### Review readings
 1. **Review readings** says "Accept a reading if it looks right. Flagged ones are listed first." Each entry shows
    "Water at 12 Elm St", **! Check this** when flagged, "Account 1001, Jane Doe. Meter 44512, read November 3,
@@ -281,6 +376,9 @@ account**), "People, settings, rates and printing" (**Open administration**).
    the real amount used (for a rolled-over or replaced meter), or reject it." A rejected reading goes back to the
    field list marked "! Needs a look". The clerk who took a reading cannot review it. When the list is empty:
    "✓ Nothing to check. All readings are done."
+
+![Review readings](screens/clerk-readings.png)
+
 
 ### Monthly billing (the bill run)
 1. **Bill runs**: the card **Start a new bill run** has "First day billed" and "Last day billed", filled in with last
@@ -306,6 +404,17 @@ account**), "People, settings, rates and printing" (**Open administration**).
      sizes."
    The list on **Bill runs** shows every run with its status; "Cancelled" runs stay in the list.
 
+![An approved run: email, print bills, print envelopes](screens/clerk-run-posted.png)
+
+
+![Calculated, with the warnings and one bill's lines opened](screens/clerk-run-calculated.png)
+
+
+![Bill runs](screens/clerk-runs.png)
+
+![A new run, not calculated yet](screens/clerk-run-new.png)
+
+
 ### Late charges
 - On **Bill runs**, the card **Late charges**: "Run this after a due date has passed. A bill is only ever charged
   once, and running it again adds nothing." Press **Add late charges for bills past due**; the confirmation says
@@ -313,6 +422,11 @@ account**), "People, settings, rates and printing" (**Open administration**).
   the customer is keeping up with are skipped." Result: "Added 14 late charges ($61.20). 2 skipped for payment
   plans." The charge is the city's percentage of what is still unpaid on the bill, rounded up to the cent. A date
   that has not come yet is refused.
+
+![Adding late charges](screens/clerk-late-confirm.png)
+
+![Done, once](screens/clerk-late-done.png)
+
 
 ### Shutoffs and reconnects
 1. From Staff home, **See orders** opens **Shutoffs and reconnects**. The card **Past due and past the notice
@@ -324,11 +438,17 @@ account**), "People, settings, rates and printing" (**Open administration**).
    shutoffs with **Order reconnect**, which is refused while anything is still owed. **Finished orders** folds out
    the last 30 with the crew's notes.
 
+![Shutoffs and reconnects](screens/clerk-shutoffs.png)
+
+
 ### Collect autopay
 - On **Bill runs**, the card **Autopay**: "Run this on or after the due date. Payments finish a moment later and
   then appear on each account." **Collect autopay for bills that are due** asks for a safety check, then: "Started
   12 payments. 1 could not be collected and those customers were emailed. 3 skipped because nothing is owed." A
   nightly job can do the same thing without anyone pressing the button.
+
+![After collecting autopay](screens/clerk-autopay-done.png)
+
 
 ### Accounts
 - **Accounts** has "Find a customer" ("Type a name, address or account number"); results show name, address and
@@ -368,8 +488,8 @@ account**), "People, settings, rates and printing" (**Open administration**).
      accepted reading: "15,000 on October 1, 2026", "1,000 used, already billed" (or "not billed yet"). Press
      **This one is wrong**. A reading with a fix already waiting shows "Fix waiting for approval" instead.
   2. The form **Reading of 15,000 on October 1, 2026** asks "The right meter number" and "What went wrong" ("For
-     example: 'Reader wrote 15000, meter shows 14500.'"). Press **Show what changes**: "Usage changes by -500
-     units. The customer gets a credit of $3.25." with "Bill ending October 31, 2026: $12.50 for these charges,
+     example: 'Reader wrote 15000, meter shows 14500.'"). Press **Show what changes**: "Reading: 15,000 → 14,500.
+     Usage from this reading: 1,000 → 500 units. The customer gets a credit of $3.25." with "Bill ending October 31, 2026: $12.50 for these charges,
      should be $9.25." and "A different person must approve this. The reading is changed when they do." The next
      reading's usage goes up by the same 500 so the meter still adds up. A reading not billed yet, or billed only in
      a run that is not approved, shows "Not billed yet, so no money changes. The next bill will use the right
@@ -379,6 +499,33 @@ account**), "People, settings, rates and printing" (**Open administration**).
      run afterwards). The same number as already saved: "That is the same number that is already saved." A number
      that would make usage negative is refused with an explanation. Only an accepted reading can be fixed.
 - The clerk does not take counter payments; that button belongs to the cashier.
+
+![Sent for approval](screens/clerk-fix-sent.png)
+
+
+![Show what changes](screens/clerk-fix-preview.png)
+
+
+![Pick the reading that was wrong](screens/clerk-fix-pick.png)
+
+
+![Setting up a plan for a customer who called](screens/clerk-plan-setup.png)
+
+
+![Making a new link code](screens/clerk-linkcode-confirm.png)
+
+
+![Adding a one-time charge](screens/clerk-charge.png)
+
+
+![Asking for an adjustment](screens/clerk-adjustment.png)
+
+
+![A customer account as the clerk sees it](screens/clerk-account.png)
+
+
+![Accounts, with Add a new account opened](screens/clerk-accounts.png)
+
 
 ### Bill questions and service requests
 - **Bill questions** (from Staff home, **See questions**): each shows "Resident says: ..." and the date, a box "Your
@@ -391,9 +538,18 @@ account**), "People, settings, rates and printing" (**Open administration**).
   done."). Type a "Note to the resident (they will see it)" and press **Mark scheduled**, **Mark done** or
   **Cannot do this**. The resident sees the status and the note on their Service requests page.
 
+![Service requests queue](screens/clerk-requests.png)
+
+
+![Bill questions](screens/clerk-questions.png)
+
+
 ### Administration (clerk's part)
 The clerk's **Administration** page has **Services and rates** (view only; the clerk can see the current rate and
 what is coming) and **Printing** (print test pages; only an administrator changes layouts).
+
+![Administration, as a clerk sees it](screens/clerk-admin.png)
+
 
 ### A billing clerk must NOT be able to
 - Approve anything: a bill run, an adjustment, a refund, a reading fix or a payment plan. The buttons are not
@@ -419,6 +575,16 @@ what is coming) and **Printing** (print test pages; only an administrator change
 4. **Approvals** is visible so the cashier can see what is waiting and tell the customer, but it has no buttons.
    Staff home shows "N requests waiting for approval" and "Look up a customer".
 
+![Staff home for a cashier](screens/cashier-home.png)
+
+![Approvals, read only](screens/cashier-approvals.png)
+
+
+![Taking a payment at the counter](screens/cashier-payment.png)
+
+![The payment on the account at once](screens/cashier-account.png)
+
+
 ### A cashier must NOT be able to
 - Approve or decline anything, add charges, start bill runs, change settings, see the activity log or people, or
   change services and meters.
@@ -439,6 +605,11 @@ requests** queues exactly as described for the clerk.
 Customer service cannot take counter payments, review readings, run billing, add late charges, order shutoffs,
 fix readings or decide anything.
 
+![Staff home for customer service](screens/cs-home.png)
+
+![An account as customer service sees it: changes allowed, no Take a payment](screens/cs-account.png)
+
+
 ---
 
 ## Approver
@@ -448,6 +619,9 @@ fix readings or decide anything.
 Staff home shows "N requests waiting for approval", "N payment plan requests", "Monthly billing" and "Look up a
 customer". Every approval asks for the safety check first (once per window).
 
+![Staff home for an approver](screens/approver-home.png)
+
+
 ### Approve a bill run
 - **Bill runs** lists each run with its status. Open one marked **Ready for approval**: the heading shows the
   dates, "Due date", and "212 bills, $18,240.50". **See the lines** under any name shows that bill's charges.
@@ -455,6 +629,13 @@ customer". Every approval asks for the safety check first (once per window).
   customer accounts. This cannot be undone, only corrected." **Yes, approve**. Safety check. Then "Approved. Bills
   are now on customer accounts." The person who started the run sees no button, only the note that a different
   person must approve.
+
+![A run ready for approval](screens/approver-run.png)
+
+![Approve this bill run?](screens/approver-run-confirm.png)
+
+![Approved](screens/approver-run-approved.png)
+
 
 ### Decide adjustments, charges, refunds and reading fixes
 - **Approvals** says "Requests from staff to change a customer account. The person who asked cannot approve their
@@ -471,6 +652,9 @@ customer". Every approval asks for the safety check first (once per window).
   much credit. Nobody can decide a request they made.
 - When nothing is waiting: "✓ Nothing waiting."
 
+![Approvals: the adjustment and the reading fix](screens/approver-approvals.png)
+
+
 ### Decide payment plans
 - **Payment plans**: "Customers who asked to pay what they owe in monthly parts. While a customer keeps up with an
   approved plan, the bills in it get no late charge and the account stays off the shutoff list."
@@ -482,12 +666,20 @@ customer". Every approval asks for the safety check first (once per window).
   emailed." A request the approver made themselves (as staff for a customer) shows "You asked for this one, so a
   different person must decide it."
 
+![Payment plans](screens/approver-plans.png)
+
+
 ### Reverse a mistaken ledger entry
 - On an account's **History**, every entry that has not been reversed has a **Reverse** button (a payment typed on
   the wrong account, for example). The form **Reverse this entry: $45.00** says "A new entry for the opposite
   amount is added. The original stays in the history. This needs a safety check." and asks "Why". **Reverse it**.
   The original then shows "Reversed" and a new "Reversal" entry appears. An entry can be reversed only once;
   reversals themselves cannot be reversed.
+
+![Reversing an entry](screens/approver-reverse.png)
+
+![The reversal on the account](screens/approver-reversed.png)
+
 
 ### An approver must NOT be able to
 - Start or calculate a bill run, take payments, add charges, change settings, people or rates, or read the
@@ -507,6 +699,11 @@ and meters, make link codes and set up payment plans, but cannot take money, app
 **Administration** is a set of cards: People and roles, City settings, Colors, logo and demo mode, Updates,
 Services and rates, Printing, Activity log.
 
+![Staff home for a city administrator](screens/admin-home.png)
+
+![Administration](screens/admin-hub.png)
+
+
 ### People and roles
 - **People and roles**: "A person can have more than one role. Some combinations are not allowed on purpose, so the
   same person cannot both start and approve a payment change."
@@ -524,6 +721,9 @@ Services and rates, Printing, Activity log.
 - A city administrator may give any staff role except site administrator, including city administrator, so the city
   is never down to one person. The only city administrator cannot be removed or turned off; add another first (the
   attempt is refused with a plain message).
+
+![People and roles](screens/admin-people.png)
+
 
 ### City settings
 - One form: City Hall phone number, Office hours ("Shown at the bottom of every page"), City return address
@@ -543,6 +743,9 @@ Services and rates, Printing, Activity log.
   fees); for anyone else they are greyed out with "Late charges, due dates, fees and approval limits can only be
   changed by a city administrator."
 
+![City settings, including the online payment fees](screens/admin-settings.png)
+
+
 ### Services and rates
 - Each service (Water, Sewer, Trash, Electric, and any the city adds) is a card with **✓ On** or **Off**, "Current
   rate:" in words ("$15.00 covers the first 2,000 gallons; then $6.50 per 1,000 gallons; minimum $15.00. Since
@@ -558,6 +761,11 @@ Services and rates, Printing, Activity log.
   check. Each mistake is named: "Step 2: 'up to' must be a number bigger than the one before it."
 - **Turn off Water** / **Turn on Water**: "New bill runs will leave this service off. Old bills do not change."
   Safety check.
+
+![Services and rates](screens/admin-rates.png)
+
+![Setting a new metered rate](screens/admin-rate-form.png)
+
 
 ### Printing
 - **Printing**: "Tell utilities the size of the paper and envelopes you actually have. Each layout is yours to change
@@ -578,6 +786,11 @@ Services and rates, Printing, Activity log.
 - Long charge lists never spill: the table stops at its height and prints "...and 3 more charges". Addresses that do
   not fit are trimmed, so every envelope stays lined up.
 
+![Printing](screens/admin-printing.png)
+
+![The layout editor (top part)](screens/admin-layout-editor.png)
+
+
 ### Colors, logo and demo mode
 - **City colors**: Top bar and headings, Buttons, Stripe under the top bar (or "No stripe"). "The words on the top
   bar and on buttons are white, so those two colors must be dark. Colors that are too light are not accepted."
@@ -589,10 +802,16 @@ Services and rates, Printing, Activity log.
   ready to use this for real."
 - All three save behind the safety check.
 
+![Colors, logo and demo mode](screens/admin-appearance.png)
+
+
 ### Updates
 - **Updates** reports "✓ Up to date. This city is running 1.4.0." or "A newer version is ready: 1.5.0. This city is
   running 1.4.0." with a link to what is new, and "Whoever hosts this program installs it." The form "Where
   updates come from" has "Look for new versions" and the GitHub address (only github.com is accepted).
+
+![Updates](screens/admin-updates.png)
+
 
 ### A city administrator must NOT be able to
 - Approve or decline anything, take payments, start bill runs, review readings or fix readings.
@@ -615,6 +834,15 @@ Services and rates, Printing, Activity log.
   address answers "You don't have permission to do that."), or change any money setting or rate. Role changes they
   make are emailed to the city administrators.
 
+![Staff home for a site administrator](screens/siteadmin-home.png)
+
+![Administration for a site administrator](screens/siteadmin-admin.png)
+
+![Settings with the money fields greyed out](screens/siteadmin-settings.png)
+
+![A customer search: Not allowed](screens/siteadmin-refused.png)
+
+
 ---
 
 ## Auditor
@@ -631,6 +859,13 @@ Services and rates, Printing, Activity log.
   changed or removed." or "The record was changed at entry number 318. Tell your site administrator right away."
 - Must NOT be able to write anything: every save, approve, pay, charge or setting answers "You don't have
   permission to do that."
+
+![Staff home for an auditor](screens/auditor-home.png)
+
+![An account, read only](screens/auditor-account.png)
+
+![The activity log, checked](screens/auditor-audit.png)
+
 
 ---
 
