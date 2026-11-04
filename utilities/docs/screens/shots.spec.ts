@@ -1,4 +1,5 @@
-// Takes the screenshots used in docs/workflows.md, against the throwaway e2e server (demo data, no real money).
+// Takes the screenshots used in docs/workflows.md, against the throwaway e2e server (demo data, no real money, demo
+// mode off so the pictures look like a real city).
 // Run: npm run screenshots. Each role is walked through in order, so later screens see earlier changes.
 import { expect, Page, test } from '@playwright/test';
 import { auditLayout } from '../../e2e/layout-audit';
@@ -87,6 +88,7 @@ test('resident', async ({ page }) => {
   await shot(page, 'res-pay-partial');
   await page.getByRole('button', { name: 'Continue' }).click();
   await expect(page.getByRole('heading', { level: 1, name: 'Thank you' })).toBeVisible();
+  await page.request.post('/__test/settle-latest', { data: { email: RES } }); // the pretend processor's "paid" event
   // payment plan
   await page.goto('/#/');
   await page.getByRole('link', { name: 'See my bills and history' }).click();

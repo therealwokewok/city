@@ -12,6 +12,6 @@ export default defineConfig({
   retries: 0,
   timeout: 120_000,
   use: { ...devices['Desktop Chrome'], viewport: { width: 1000, height: 800 }, baseURL: 'http://localhost:4199', screenshot: 'off', trace: 'off' },
-  webServer: { command: 'npx tsx e2e/server.ts', url: 'http://127.0.0.1:4199/healthz', timeout: 60_000, reuseExistingServer: false, env: { PORT: '4199', E2E_DB: 'utilities_e2e_screens' } },
+  webServer: { command: 'npx tsx e2e/server.ts', url: 'http://127.0.0.1:4199/healthz', timeout: 60_000, reuseExistingServer: false, env: { PORT: '4199', E2E_DB: 'utilities_e2e_screens', E2E_DEMO: '0' } },
   projects: [{ name: 'screens', use: {} }],
 });

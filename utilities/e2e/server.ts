@@ -30,7 +30,7 @@ const db = new pg.Pool({ connectionString: dbUrl });
 const { cityId } = await createCity(db, {
   name: 'City of Example', state: 'MO', timezone: 'America/Chicago', hosts: ['e2e.localhost', 'localhost', '127.0.0.1'],
   adminEmail: 'admin@example.test', adminName: 'Demo Admin',
-  settings: { demo_mode: true, return_address: 'City of Example\nPO Box 1\nExample, MO 00000', office_hours: 'Mon-Fri 8:00 to 4:30', phone: '(555) 010-0100' },
+  settings: { demo_mode: process.env.E2E_DEMO !== '0', return_address: 'City of Example\nPO Box 1\nExample, MO 00000', office_hours: 'Mon-Fri 8:00 to 4:30', phone: '(555) 010-0100' },
 });
 await addDefaultServices(db, cityId);
 await addExampleRates(db, cityId);
@@ -88,6 +88,17 @@ app.post('/__test/reset-codes', async (req) => { await db.query('delete from log
 app.post('/__test/settle', async (req) => {
   const b = req.body as { payment_id: string; amount: number };
   const raw = JSON.stringify({ id: 'evt_' + crypto.randomUUID(), type: 'paid', payment_id: b.payment_id, amount: b.amount, method: 'card' });
+  const res = await app.inject({ method: 'POST', url: '/webhooks/payments', headers: { host: 'localhost', 'content-type': 'application/json', 'stripe-signature': signStripe(raw, pay.secret) }, payload: raw });
+  return res.json();
+});
+// Outside demo mode the pretend processor never settles on its own; this stands in for its webhook.
+app.post('/__test/settle-latest', async (req) => {
+  const email = String((req.body as any).email).toLowerCase();
+  const row = (await db.query(`select p.id, p.amount_cents from payments p join accounts a on a.id = p.account_id
+    join account_links au on au.account_id = a.id join users u on u.id = au.user_id
+    where lower(u.email) = $1 and p.status = 'pending' order by p.created_at desc limit 1`, [email])).rows[0];
+  if (!row) return { ok: false };
+  const raw = JSON.stringify({ id: 'evt_' + crypto.randomUUID(), type: 'paid', payment_id: row.id, amount: Number(row.amount_cents), method: 'card' });
   const res = await app.inject({ method: 'POST', url: '/webhooks/payments', headers: { host: 'localhost', 'content-type': 'application/json', 'stripe-signature': signStripe(raw, pay.secret) }, payload: raw });
   return res.json();
 });

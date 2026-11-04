@@ -13,6 +13,6 @@ export default defineConfig({
   retries: 0,
   timeout: 120_000,
   use: { ...devices['Pixel 7'], baseURL: 'http://localhost:4198', screenshot: 'off', trace: 'off' },
-  webServer: { command: 'npx tsx e2e/server.ts', url: 'http://127.0.0.1:4198/healthz', timeout: 60_000, reuseExistingServer: false, env: { PORT: '4198', E2E_DB: 'utilities_e2e_screens_m' } },
+  webServer: { command: 'npx tsx e2e/server.ts', url: 'http://127.0.0.1:4198/healthz', timeout: 60_000, reuseExistingServer: false, env: { PORT: '4198', E2E_DB: 'utilities_e2e_screens_m', E2E_DEMO: '0' } },
   projects: [{ name: 'phone', use: {} }],
 });
