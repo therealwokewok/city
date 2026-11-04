@@ -1,7 +1,11 @@
 import { defineConfig, devices } from '@playwright/test';
 
-// The same walk-through on a phone, for checking layouts. Point SHOT_DIR at a folder outside the repo, for example:
-//   SHOT_DIR=/tmp/phone npx playwright test -c playwright.screens-mobile.config.ts
+// The same walk-through on a phone, checked against the layout standard (e2e/layout-audit.ts) and at 320px wide.
+// Its screenshots go to .ui-audit/phone (not committed); set SHOT_DIR to put them elsewhere.
+import fs from 'node:fs';
+process.env.SHOT_DIR ??= '.ui-audit/phone';
+process.env.REFLOW_320 ??= '1';
+fs.mkdirSync(process.env.SHOT_DIR, { recursive: true });
 export default defineConfig({
   testDir: 'docs/screens',
   testMatch: '**/*.spec.ts',

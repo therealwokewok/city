@@ -1,15 +1,28 @@
 // Takes the screenshots used in docs/workflows.md, against the throwaway e2e server (demo data, no real money).
 // Run: npm run screenshots. Each role is walked through in order, so later screens see earlier changes.
 import { expect, Page, test } from '@playwright/test';
+import { auditLayout } from '../../e2e/layout-audit';
 import { safetyCheck, signIn } from '../../e2e/helpers';
+
+// Every screen is also measured against the layout standard in e2e/layout-audit.ts; the last test fails if any screen broke it.
+const problems: string[] = [];
 
 test.describe.configure({ mode: 'serial' });
 test.setTimeout(120_000);
 
-const DIR = process.env.SHOT_DIR || 'docs/screens';
+const DIR = process.env.SHOT_DIR || '.ui-audit/desktop';
 const shot = async (page: Page, name: string, opts: { full?: boolean; el?: string } = {}) => {
   await page.evaluate(() => window.scrollTo(0, 0));
   await page.waitForTimeout(250);
+  problems.push(...(await auditLayout(page, name)));
+  if (process.env.REFLOW_320) {
+    // WCAG 1.4.10: the page must still work at 320 CSS px wide
+    const vp = page.viewportSize()!;
+    await page.setViewportSize({ width: 320, height: vp.height });
+    const over = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+    if (over > 1) problems.push(`[${name}] Reflow at 320px: the page is ${over}px wider than the screen`);
+    await page.setViewportSize(vp);
+  }
   if (opts.el) {
     // the demo bar is fixed to the top of the window and would sit across a close-up
     await page.evaluate(() => { document.getElementById('demo')!.style.visibility = 'hidden'; });
@@ -411,4 +424,11 @@ test('auditor', async ({ page }) => {
   await expect(page.getByText('The record is complete')).toBeVisible();
   await page.screenshot({ path: `${DIR}/auditor-audit.png`, clip: { x: 0, y: 0, width: 1000, height: 1100 }, fullPage: true });
   await signOut(page);
+});
+
+// ---------- the standard ----------
+test('every screen meets the layout standard', async () => {
+  const unique = [...new Set(problems)];
+  if (unique.length) console.log('\nLayout standard problems:\n' + unique.join('\n') + '\n');
+  expect(unique, 'see e2e/layout-audit.ts for the rules').toEqual([]);
 });

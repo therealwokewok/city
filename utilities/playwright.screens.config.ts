@@ -1,6 +1,10 @@
 import { defineConfig, devices } from '@playwright/test';
 
-// Takes the screenshots in docs/screens for the workflow guide. Run with: npm run screenshots
+// Walks every screen on a desktop browser, checks it against the layout standard (e2e/layout-audit.ts) and saves a
+// screenshot of each. `npm run audit:ui` keeps the pictures in .ui-audit; `npm run screenshots` writes the guide's copies.
+import fs from 'node:fs';
+process.env.SHOT_DIR ??= '.ui-audit/desktop';
+fs.mkdirSync(process.env.SHOT_DIR, { recursive: true });
 export default defineConfig({
   testDir: 'docs/screens',
   testMatch: '**/*.spec.ts',

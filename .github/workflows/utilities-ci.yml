@@ -25,3 +25,23 @@ jobs:
       - run: npm run typecheck
       - run: npm test
       - run: npm audit --omit=dev --audit-level=high
+  ui:
+    # Every screen, desktop and phone, measured against the layout standard in utilities/e2e/layout-audit.ts.
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env: { POSTGRES_USER: utilities_owner, POSTGRES_PASSWORD: dev, POSTGRES_DB: postgres }
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U utilities_owner" --health-interval 3s --health-retries 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm, cache-dependency-path: utilities/package-lock.json }
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: npm run audit:ui
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with: { name: ui-audit-screens, path: utilities/.ui-audit, retention-days: 7 }

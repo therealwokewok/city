@@ -13,7 +13,8 @@
     "bootstrap": "tsx scripts/bootstrap.ts",
     "autopay": "tsx src/autopayCli.ts",
     "test-users": "tsx scripts/test-users.ts",
-    "screenshots": "playwright test -c playwright.screens.config.ts && node docs/screens/shrink.mjs"
+    "screenshots": "node docs/screens/take.mjs",
+    "audit:ui": "playwright test -c playwright.screens.config.ts && playwright test -c playwright.screens-mobile.config.ts"
   },
   "keywords": [],
   "author": "Cory Cline",

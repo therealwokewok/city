@@ -117,9 +117,9 @@ main.wide { max-width: var(--maxw-wide); }
 /* forms */
 .field { margin: 0 0 1.25rem; }
 label, .label { display: block; font-weight: 700; margin-bottom: .25rem; }
-.hint { color: var(--muted); font-size: 1rem; margin: 0 0 .4rem; }
+.hint { color: var(--muted); font-size: 1rem; margin: 0 0 .5rem; }
 input[type="text"], input[type="email"], input[type="tel"], input[type="number"], input[type="search"], input[type="date"], select, textarea {
-  width: 100%; min-height: var(--tap); padding: .5rem .875rem; font: inherit; color: var(--text); background: var(--card);
+  width: 100%; min-height: var(--tap); padding: .5rem .75rem; font: inherit; color: var(--text); background: var(--card);
   border: 3px solid var(--line); border-radius: 6px;
 }
 textarea { min-height: 8rem; }
@@ -128,9 +128,9 @@ input.code { font-size: 2rem; letter-spacing: .3em; text-align: center; font-var
 .error::before { content: "Problem: "; }
 .notice { background: var(--ok-bg); color: var(--ok); border: 3px solid var(--ok); border-radius: var(--radius); padding: .75rem 1rem; margin: 0 0 1rem; font-weight: 600; }
 .notice.warn { background: var(--warn-bg); color: var(--warn); border-color: var(--warn); }
-.check { display: flex; align-items: center; gap: .875rem; min-height: var(--tap); font-weight: 600; cursor: pointer; }
+.check { display: flex; align-items: center; gap: 1rem; min-height: var(--tap); font-weight: 600; cursor: pointer; }
 .check input { width: 1.75rem; height: 1.75rem; accent-color: var(--primary); flex: none; }
-.radio-card { display: flex; gap: .875rem; align-items: center; border: 3px solid var(--soft-line); border-radius: var(--radius); padding: .75rem 1rem; margin-bottom: .75rem; min-height: var(--tap); background: var(--card); cursor: pointer; }
+.radio-card { display: flex; gap: 1rem; align-items: center; border: 3px solid var(--soft-line); border-radius: var(--radius); padding: .75rem 1rem; margin-bottom: .75rem; min-height: var(--tap); background: var(--card); cursor: pointer; }
 .radio-card input { width: 1.75rem; height: 1.75rem; accent-color: var(--primary); flex: none; }
 .radio-card:has(input:checked) { border-color: var(--primary); }
 
@@ -139,24 +139,26 @@ input.code { font-size: 2rem; letter-spacing: .3em; text-align: center; font-var
 /* Staff home tiles: the number on top, the words, then the button lined up at the bottom of every tile. */
 .grid > .card { display: flex; flex-direction: column; margin: 0; }
 .grid > .card > :last-child { margin-top: auto; }
-.grid > .card .btn { width: 100%; min-width: 0; white-space: nowrap; }
+.grid > .card .btn { width: 100%; min-width: 0; }
 .grid > .card p { margin-bottom: .75rem; }
 .card h2, .card h3 { margin-top: 0; }
 .owe { font-size: 2.75rem; font-weight: 800; line-height: 1.1; margin: .25rem 0; font-variant-numeric: tabular-nums; }
-.status { display: inline-flex; align-items: center; gap: .4rem; font-weight: 700; padding: .25rem .75rem; border-radius: 999px; border: 2px solid currentColor; }
+.status { display: inline-flex; align-items: center; gap: .5rem; font-weight: 700; padding: .25rem .75rem; border-radius: 999px; border: 2px solid currentColor; }
 .status.ok { color: var(--ok); background: var(--ok-bg); }
 .status.warn { color: var(--warn); background: var(--warn-bg); }
 .status.bad { color: var(--bad); background: var(--bad-bg); }
 .muted { color: var(--muted); }
 .list { list-style: none; margin: 0; padding: 0; }
-.list > li { border-bottom: 2px solid var(--soft-line); padding: .875rem 0; }
+.list > li { border-bottom: 2px solid var(--soft-line); padding: 1rem 0; }
+/* A card inside a list keeps its own frame and room, instead of the plain list spacing. */
+.list > li.card { padding: 1.25rem; border: 2px solid var(--soft-line); margin-bottom: 1rem; }
 .list > li:last-child { border-bottom: 0; }
 .row2 { display: flex; justify-content: space-between; gap: 1rem; align-items: baseline; }
 .amount { font-variant-numeric: tabular-nums; font-weight: 700; white-space: nowrap; }
 .credit { color: var(--ok); }
 table.bill { width: 100%; border-collapse: collapse; font-size: 1.1rem; }
 table.bill caption { text-align: left; font-weight: 700; padding-bottom: .5rem; }
-table.bill th, table.bill td { text-align: left; padding: .6rem .25rem; border-bottom: 2px solid var(--soft-line); vertical-align: top; }
+table.bill th, table.bill td { text-align: left; padding: .5rem .25rem; border-bottom: 2px solid var(--soft-line); vertical-align: top; }
 table.bill td.amt, table.bill th.amt { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
 table.bill tfoot td, table.bill tfoot th { font-size: 1.3rem; font-weight: 800; border-bottom: 0; }
 .steps { counter-reset: s; list-style: none; padding: 0; }
@@ -167,7 +169,7 @@ table.bill tfoot td, table.bill tfoot th { font-size: 1.3rem; font-weight: 800; 
 /* bottom menu on phones, tabs on wide screens */
 #tabs { position: fixed; left: 0; right: 0; bottom: 0; background: var(--card); border-top: 3px solid var(--primary);
   display: flex; justify-content: space-around; overflow-x: auto; padding-bottom: env(safe-area-inset-bottom); z-index: 20; }
-#tabs a { flex: 1 0 auto; min-width: 4.75rem; text-align: center; padding: .6rem .5rem; min-height: 3.75rem; display: grid; place-items: center;
+#tabs a { flex: 1 0 auto; min-width: 4.75rem; text-align: center; padding: .5rem .5rem; min-height: 3.75rem; display: grid; place-items: center;
   text-decoration: none; color: var(--text); font-weight: 700; font-size: 1rem; line-height: 1.15; }
 #tabs a[aria-current="page"] { background: var(--primary); color: var(--primary-text); }
 #tabs[hidden] { display: none; }
@@ -191,12 +193,12 @@ dialog::backdrop { background: rgba(0, 0, 0, .55); }
 
 /* staff tables turn into cards on phones */
 .tbl { width: 100%; border-collapse: collapse; }
-.tbl th, .tbl td { overflow-wrap: anywhere; text-align: left; padding: .6rem .5rem; border-bottom: 2px solid var(--soft-line); vertical-align: top; }
+.tbl th, .tbl td { overflow-wrap: anywhere; text-align: left; padding: .5rem .5rem; border-bottom: 2px solid var(--soft-line); vertical-align: top; }
 @media (max-width: 47.99rem) {
   .tbl, .tbl tbody { display: block; }
   .tbl thead { position: absolute; left: -9999px; }
   .tbl tr { display: block; border: 2px solid var(--soft-line); border-radius: var(--radius); margin-bottom: .75rem; padding: .5rem .75rem; background: var(--card); }
-  .tbl td { display: flex; flex-wrap: wrap; justify-content: space-between; gap: .25rem 1rem; border: 0; padding: .3rem 0; overflow-wrap: anywhere; }
+  .tbl td { display: flex; flex-wrap: wrap; justify-content: space-between; gap: .25rem 1rem; border: 0; padding: .25rem 0; overflow-wrap: anywhere; }
   .tbl td::before { content: attr(data-label); font-weight: 700; color: var(--muted); }
 }
 .grid { display: grid; gap: 1rem; grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr)); }
@@ -225,7 +227,7 @@ button[aria-pressed="true"].btn.secondary { background: var(--primary); color: #
 input.qty { width: 5rem; min-height: var(--tap); font-size: 1.125rem; padding: .25rem .5rem; margin-left: .5rem; }
 .brand-logo { height: 2rem; width: auto; vertical-align: middle; margin-right: .625rem; background: #fff; border-radius: .25rem; padding: .125rem; }
 .swatch { display: inline-block; width: 2rem; height: 2rem; border-radius: .25rem; border: 2px solid currentColor; vertical-align: middle; margin-right: .5rem; }
-input[type=color], input[type=file] { min-height: var(--tap); width: 100%; font: inherit; }
+input[type=color], input[type=file] { min-height: var(--tap); width: 100%; font: inherit; padding: .25rem; }
 
 /* Demo mode: a bar at the top and a faint DEMO behind the page. The watermark is decorative and hidden from screen readers. */
 .demo-bar { position: sticky; top: 0; z-index: 60; padding: .5rem 1rem; color: #1e2a2e; font-weight: 600;
@@ -245,19 +247,20 @@ body.is-demo::before { content: "DEMO" / ""; position: fixed; inset: 0; z-index:
 .qty-group { display: inline-flex; align-items: center; gap: .5rem; }
 label.inline { display: inline; margin: 0; font-weight: 600; }
 .qty-group input.qty { margin: 0; }
-.addbox { border-top: 2px solid var(--soft-line); margin-top: 1rem; padding-top: .5rem; }
+.addbox { border-top: 2px solid var(--soft-line); margin-top: 1rem; padding-top: 1rem; }
 .addgrid { display: grid; gap: .75rem; align-items: end; }
 @media (min-width: 40rem) { .addgrid { grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr)); } .addgrid input.qty { width: 100%; margin: 0; } }
 /* A little room between a main button and the line under it. */
 .btn + p, .btn + .muted { margin-top: 1rem; }
 main.wide ~ .foot { padding-left: max(1rem, calc((100% - var(--maxw-wide)) / 2 + 1rem)); padding-right: max(1rem, calc((100% - var(--maxw-wide)) / 2 + 1rem)); }
 .card h3 { margin-top: 1.25rem; }
+.card > h3:first-child { margin-top: 0; }
 @media (max-width: 51.99rem) {
   /* Phones: the menu wraps into even rows instead of scrolling sideways, and the demo notice stays small and scrolls away. */
   #tabs { display: flex; flex-wrap: wrap; overflow: visible; }
-  #tabs a { flex: 1 1 auto; min-width: 0; min-height: 3rem; font-size: .95rem; padding: .4rem .6rem; white-space: nowrap; }
+  #tabs a { flex: 1 1 auto; min-width: 0; min-height: 3rem; font-size: .95rem; padding: .5rem .75rem; white-space: nowrap; }
   main { padding-bottom: 9rem; }
-  .demo-bar { position: static; font-size: 1rem; padding: .4rem .75rem; }
+  .demo-bar { position: static; font-size: 1rem; padding: .5rem .75rem; }
   .textsize button { min-width: 2.75rem; }
 }
 details.bill-lines summary { cursor: pointer; color: var(--primary); text-decoration: underline; font-size: 1rem; min-height: 2.75rem; display: flex; align-items: center; }

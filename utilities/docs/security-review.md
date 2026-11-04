@@ -69,3 +69,13 @@ single sign-on with one-shot challenges bound to the city; signed and replay-pro
 append-only ledger and a chained, verifiable activity log; integer cents everywhere; no secrets or stack traces in
 responses or logs; no vulnerable dependencies (`npm audit` clean, lockfile pinned, no install scripts in production
 dependencies).
+
+## Screen quality standard
+
+Every screen is also measured, on a desktop browser and a phone, against a written standard (`e2e/layout-audit.ts`,
+run by `npm run audit:ui` and in CI): WCAG 2.2 AA (axe-core) and reflow at 320px wide; 44px touch targets; a 4px
+spacing grid; at least 12px between a box's edge and what is inside it; no overlapping, clipped or cut-off content;
+lines of at most 80 characters; body text at least 16px and small print at least 14px; one h1 and no skipped heading
+levels. The November 2026 pass found and fixed: list cards with no inner padding (service requests, field orders),
+form fields and badges off the spacing grid, a cramped button on the staff home grid, and a phone menu that clipped
+"Administration".
