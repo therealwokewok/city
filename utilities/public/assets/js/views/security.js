@@ -31,5 +31,5 @@ export async function mySignIn() {
         passkeysSupported() ? h('div', {}, name, h('div', { class: 'actions' }, add)) : h('p', { class: 'notice warn' }, 'This browser does not support passkeys. Emailed codes still work.')));
   };
   await load();
-  return h('div', {}, h('h1', {}, 'My sign-in'), msg, host, h('p', { class: 'hint' }, 'An emailed code always works too, so you can never be locked out.'));
+  return h('div', {}, h('a', { href: '#/' }, '← Back'), h('h1', {}, 'My sign-in'), msg, host, h('p', { class: 'hint' }, 'An emailed code always works too, so you can never be locked out.'));
 }

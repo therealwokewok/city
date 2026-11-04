@@ -98,7 +98,6 @@ export const settings = safe(async () => {
     field({ id: 'stepup', label: 'Minutes a safety check stays good', hint: 'Staff retype an emailed code before risky actions. This is how long it lasts, from 1 to 30 minutes.', inputmode: 'numeric', value: s.stepup_minutes }),
     lock(feeFields(s)),
     money ? walletBox() : null,
-    money ? null : h('p', { class: 'notice warn' }, 'Late charges, due dates, fees and approval limits can only be changed by a city administrator.'),
     h('div', { class: 'actions' }, h('button', { class: 'btn', type: 'submit' }, 'Save settings')));
   const msg = h('div');
   form.addEventListener('submit', async (e) => {
@@ -130,7 +129,7 @@ export const settings = safe(async () => {
       say(msg, 'Settings saved.');
     } catch (err) { showError(form, err.message); }
   });
-  return h('div', {}, back(), h('h1', {}, 'City settings'), msg, form);
+  return h('div', {}, back(), h('h1', {}, 'City settings'), money ? null : h('p', { class: 'notice warn' }, 'The greyed-out money settings (late charges, due dates, fees and approval limits) can only be changed by a city administrator.'), msg, form);
 }, 'City settings');
 
 // =============== people and roles ===============
@@ -169,7 +168,7 @@ export const people = safe(async () => {
               await reload(`${roleName(r)} ${cb.checked ? 'added to' : 'removed from'} ${u.name || u.email}.`);
             } catch (err) { cb.checked = !cb.checked; showError(host, err.message); }
           });
-          return h('div', {}, h('label', { class: 'check', for: cb.id }, cb, h('span', {}, roleName(r), h('br'), h('span', { class: 'muted small' }, ROLE_INFO[r][1]))));
+          return h('div', {}, h('label', { class: 'check multi', for: cb.id }, cb, h('span', {}, roleName(r), h('br'), h('span', { class: 'muted small' }, ROLE_INFO[r][1]))));
         }));
       body.push(box);
       if (u.active) {

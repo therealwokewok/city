@@ -87,7 +87,7 @@ export async function auditLayout(page: Page, screen: string): Promise<string[]>
     for (const el of document.querySelectorAll<HTMLElement>('main *, #tabs a, header *, dialog *')) {
       if (!vis(el) || !relevant(el)) continue;
       const s = getComputedStyle(el);
-      if (el.matches('select, textarea, input')) continue;
+      if (el.matches('select, textarea, input, .sr, .sr *')) continue; // screen-reader-only text is clipped on purpose
       if (el.scrollWidth > el.clientWidth + 1 && (s.overflowX === 'hidden' || s.overflowX === 'clip' || s.whiteSpace === 'nowrap') && !el.matches('details, summary')) {
         if (s.textOverflow !== 'ellipsis') out.push(`Cut off: ${label(el)} content is ${el.scrollWidth - el.clientWidth}px wider than its box`);
       }
@@ -145,7 +145,18 @@ export async function auditLayout(page: Page, screen: string): Promise<string[]>
       if (size < (small ? 14 : 16) - 0.3) out.push(`Text size: ${label(el)} is ${size.toFixed(1)}px (${small ? 'small print needs 14' : 'body text needs 16'})`);
     }
 
-    // 7. Structure: one h1, no skipped levels
+    // 7. Nothing half-rendered: a bare "null" or "undefined" is a value that was never turned into words
+    {
+      const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+      let n: Node | null;
+      while ((n = walker.nextNode())) {
+        const t = n.textContent!.trim(); const p = n.parentElement;
+        if (!p || !vis(p) || p.closest('script, style')) continue;
+        if (/^(null|undefined|NaN|\[object Object\])$/.test(t) || /\b(undefined|NaN|\[object Object\])\b/.test(t)) out.push(`Unfinished text: ${label(p)} shows "${t.slice(0, 40)}"`);
+      }
+    }
+
+    // 8. Structure: one h1, no skipped levels
     const hs = [...document.querySelectorAll('main h1, main h2, main h3, main h4, dialog h2')].filter(vis);
     const h1s = hs.filter((h) => h.tagName === 'H1').length;
     if (h1s !== 1) out.push(`Structure: ${h1s} h1 headings on the page (needs exactly 1)`);

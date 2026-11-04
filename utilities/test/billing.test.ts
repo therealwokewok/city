@@ -120,6 +120,10 @@ describe('late charges and shutoff', () => {
     expect(await tx(S.ctx('clerk'), (c) => balance(c, S.accounts.a2))).toBe(4733 + 474);
     const again = await tx(S.ctx('clerk'), (c) => runPenalties(c, S.users.clerk.id, '2026-12-01'));
     expect(again.charged).toBe(0);
+    // With no date given, the server uses the city's own today (the browser's clock may be on another day).
+    const noDate = await tx(S.ctx('clerk'), (c) => runPenalties(c, S.users.clerk.id));
+    expect(noDate.charged).toBe(0);
+    await expect(tx(S.ctx('clerk'), (c) => runPenalties(c, S.users.clerk.id, '2099-01-01'))).rejects.toThrow(/today or an earlier date/);
   });
 });
 

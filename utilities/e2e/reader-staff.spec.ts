@@ -125,10 +125,12 @@ test('staff: clerk changes quantity of a service and adds a meter on an existing
   await page.getByRole('link', { name: /Sam Sample/ }).click();
   await expect(page.getByRole('heading', { name: 'Services and meters' })).toBeVisible();
   // A meter can only be added for a service the account has, so add water first.
-  await expect(page.getByLabel('Meter number')).toHaveCount(0);
+  await expect(page.getByText('Add a meter')).toHaveCount(0);
+  await page.getByText('Add a service').click(); // folded away until needed
   await page.getByLabel('Service to add').selectOption({ label: 'Water' });
   await page.getByRole('button', { name: 'Add this service' }).click();
   await expect(page.locator('#live')).toHaveText('Service added.');
+  await page.getByText('Add a service').click();
   await page.getByLabel('Service to add').selectOption({ label: 'Security light' });
   await page.getByRole('button', { name: 'Add this service' }).click();
   await expect(page.getByRole('spinbutton', { name: 'How many Security light' })).toBeVisible();
@@ -136,6 +138,7 @@ test('staff: clerk changes quantity of a service and adds a meter on an existing
   await page.getByRole('button', { name: 'Save how many Security light' }).click();
   await expect(page.locator('#live')).toHaveText('Security light saved.');
   await expect(page.getByRole('spinbutton', { name: 'How many Security light' })).toHaveValue('3');
+  await page.getByText('Add a meter').click();
   await page.getByLabel('Meter for').selectOption({ label: 'Water' });
   await page.getByLabel('Meter number').fill('MO-W-2002');
   await page.getByRole('button', { name: 'Add this meter' }).click();

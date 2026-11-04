@@ -69,7 +69,7 @@ test('resident', async ({ page }) => {
   await page.getByRole('link', { name: 'See my bills and history' }).click();
   await expect(page.getByRole('heading', { level: 2, name: 'Your bills' })).toBeVisible();
   await shot(page, 'res-account');
-  await page.getByRole('link', { name: 'Open this bill' }).first().click();
+  await page.getByRole('link', { name: /2026 Due / }).first().click();
   await expect(page.getByRole('heading', { level: 1, name: /^Bill for/ })).toBeVisible();
   await shot(page, 'res-bill');
   await page.getByRole('button', { name: 'Something looks wrong' }).click();
@@ -329,7 +329,7 @@ test('resident sees the approved plan', async ({ page }) => {
   await expect(page.getByText('Scheduled')).toBeVisible();
   await shot(page, 'res-requests-answered', { el: 'main' });
   await page.goto('/#/account/' + (await page.evaluate(async () => (await (await fetch('/api/resident/accounts')).json()).accounts[0].id)));
-  await page.getByRole('link', { name: 'Open this bill' }).first().click();
+  await page.getByRole('link', { name: /2026 Due / }).first().click();
   await signOut(page);
 });
 

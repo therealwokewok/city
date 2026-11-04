@@ -81,7 +81,7 @@ test('a resident connects an account, reads a bill, asks a question and pays', a
 
   // the bill
   await page.getByRole('link', { name: 'See my bills and history' }).click();
-  await page.getByRole('link', { name: 'Open this bill' }).last().click();
+  await page.getByRole('link', { name: /2026 Due / }).last().click();
   const table = page.getByRole('table');
   await expect(table).toContainText('Water');
   await expect(table).toContainText('Fuel adjustment');

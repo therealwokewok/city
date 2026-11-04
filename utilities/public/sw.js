@@ -1,6 +1,6 @@
 // Keeps the app shell on the phone so meter readers can open it with no signal.
 // API calls are never cached: bills and balances must always come fresh from the server.
-const CACHE = 'utilities-shell-v13';
+const CACHE = 'utilities-shell-v15';
 const SHELL = ['/', '/assets/app.css', '/assets/js/main.js', '/assets/js/api.js', '/assets/js/dom.js',
   '/assets/js/views/signin.js', '/assets/js/views/resident.js', '/assets/js/views/reader.js', '/assets/js/views/staff.js', '/assets/js/views/security.js', '/assets/js/webauthn.js', '/favicon.svg'];
 self.addEventListener('install', (e) => { e.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting())); });

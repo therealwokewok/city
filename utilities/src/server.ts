@@ -806,12 +806,13 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   });
   app.post('/api/staff/penalties', async (req) => {
     need(req, 'runs.manage');
-    const { as_of } = parse(z.object({ as_of: isoDate }), req.body);
+    // No date means today in the city's time zone; a browser elsewhere may already be on tomorrow.
+    const { as_of } = parse(z.object({ as_of: isoDate.optional() }), req.body ?? {});
     return tx(ctxOf(req), (c) => runPenalties(c, me(req), as_of));
   });
   app.get('/api/staff/shutoff', async (req) => {
     need(req, 'runs.read'); need(req, 'accounts.read');
-    const { as_of } = parse(z.object({ as_of: isoDate }), req.query);
+    const { as_of } = parse(z.object({ as_of: isoDate.optional() }), req.query);
     return tx(ctxOf(req), async (c) => ({ accounts: await shutoffList(c, as_of) }));
   });
 

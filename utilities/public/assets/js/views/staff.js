@@ -1,4 +1,4 @@
-import { h, field, money, plainDate, plainNote, showError, busy, confirmDialog, announce, todayIso, fill } from '../dom.js';
+import { h, field, money, plainDate, plainNote, showError, busy, confirmDialog, announce, fill, flash } from '../dom.js';
 import { api, has } from '../api.js';
 
 const dollarsToCents = (v) => {
@@ -33,7 +33,7 @@ export const dashboard = safe(async () => {
   if (has('billing_clerk', 'city_admin', 'site_admin', 'auditor')) cards.push(card('', 'People, settings, rates and printing', '#/admin', 'Open administration'));
   return h('div', {}, h('h1', {}, 'Staff home'), h('div', { class: 'grid' }, cards));
 });
-const card = (n, label, href, cta) => h('section', { class: 'card' }, n !== '' ? h('p', { class: 'big-number' }, String(n)) : null, h('p', {}, label), h('a', { class: 'btn secondary', href }, cta));
+const card = (n, label, href, cta) => h('section', { class: 'card' }, n !== '' ? h('p', { class: 'big-number' + (n ? '' : ' muted') }, String(n)) : null, h('p', {}, label), h('a', { class: n ? 'btn' : 'btn secondary', href }, cta));
 
 // ---------- readings ----------
 export const readings = safe(async () => {
@@ -96,7 +96,7 @@ export const runs = safe(async () => {
     lb.addEventListener('click', async () => {
       const ok = await confirmDialog({ title: 'Add late charges now?', body: 'Every bill that is past its due date and still unpaid gets the city\'s late charge, once. Bills on a payment plan the customer is keeping up with are skipped.', yes: 'Yes, add them', no: 'Not yet' });
       if (!ok) return;
-      try { const r = await busy(lb, 'Adding...', () => api('POST', '/api/staff/penalties', { as_of: todayIso() })); fill(lm, h('p', { class: 'notice' }, `Added ${r.charged} late charge${r.charged === 1 ? '' : 's'} (${money(r.total_cents)}).${r.on_payment_plan ? ` ${r.on_payment_plan} skipped for payment plans.` : ''}`)); announce('Late charges done.'); } catch (e) { showError(lm, e.message); }
+      try { const r = await busy(lb, 'Adding...', () => api('POST', '/api/staff/penalties', {})); fill(lm, h('p', { class: 'notice' }, `Added ${r.charged} late charge${r.charged === 1 ? '' : 's'} (${money(r.total_cents)}).${r.on_payment_plan ? ` ${r.on_payment_plan} skipped for payment plans.` : ''}`)); announce('Late charges done.'); } catch (e) { showError(lm, e.message); }
     });
     fill(lateBox, h('h2', { id: 'late-h' }, 'Late charges'), h('p', { class: 'hint' }, 'Run this after a due date has passed. A bill is only ever charged once, and running it again adds nothing.'), lm, h('div', { class: 'actions' }, lb));
   }
@@ -147,7 +147,7 @@ export const run = safe(async (id) => {
       });
       actions.append(b);
     } else if (r.status === 'calculated') {
-      needsOther = h('p', { class: 'notice warn' }, "A different person with the Approver role must approve this run. You can't approve a run you started.");
+      needsOther = h('p', { class: 'hint' }, "A different person with the Approver role must approve this run. You can't approve a run you started.");
     }
     const printBox = h('div');
     if (r.status === 'posted' && has('billing_clerk')) {
@@ -176,15 +176,16 @@ export const run = safe(async (id) => {
     fill(host, 
       h('a', { href: '#/staff/runs' }, '← All bill runs'),
       h('h1', {}, `${plainDate(r.period_start)} to ${plainDate(r.period_end)}`),
-      h('p', {}, h('span', { class: `status ${r.status === 'posted' ? 'ok' : 'warn'}` }, runLabel(r.status)), `  Due date: ${plainDate(r.due_date)}`),
+      h('div', { class: 'row-wrap' }, h('span', { class: `status ${r.status === 'posted' ? 'ok' : 'warn'}` }, runLabel(r.status)), h('span', {}, `Due date: ${plainDate(r.due_date)}`)),
       note?.ok ? h('p', { class: 'notice', role: 'status' }, note.ok) : null,
       note?.warn ? h('div', { class: 'notice warn', role: 'status' }, h('p', {}, note.warn), h('ul', {}, note.list.map((x) => h('li', {}, x)))) : null,
       actions, needsOther,
       h('h2', {}, `${bills.length} bills, ${money(total)}`),
-      bills.length ? h('table', { class: 'tbl' }, h('thead', {}, h('tr', {}, h('th', {}, 'Account'), h('th', {}, 'Name'), h('th', {}, 'Total'))),
-        h('tbody', {}, bills.map((b) => h('tr', {}, h('td', { 'data-label': 'Account' }, b.account_number), h('td', { 'data-label': 'Name' }, b.name,
+      bills.length ? h('table', { class: 'tbl' }, h('thead', {}, h('tr', {}, h('th', {}, 'Account'), h('th', {}, 'Name'), h('th', {}, 'Total'), h('th', {}, h('span', { class: 'sr' }, 'Lines')))),
+        h('tbody', {}, bills.map((b) => h('tr', {}, h('td', { 'data-label': 'Account' }, b.account_number), h('td', { 'data-label': 'Name' }, b.name),
+          h('td', { 'data-label': 'Total', class: 'amount' }, money(b.total_cents)),
           // The approver can open each bill and check its lines before approving.
-          h('details', { class: 'bill-lines' }, h('summary', {}, 'See the lines'), h('ul', {}, (b.lines || []).map((l) => h('li', {}, `${l.description}${l.meter ? ` (meter ${l.meter})` : ''}${l.units != null ? `, ${l.units}${l.unit ? ' ' + l.unit : ''} used` : ''}${l.quantity > 1 ? `, ${l.quantity} of them` : ''}: `, h('strong', {}, money(l.amount_cents))))))), h('td', { 'data-label': 'Total', class: 'amount' }, money(b.total_cents)))))) : h('p', { class: 'muted' }, 'No bills yet. Calculate to make them.'),
+          h('td', { class: 'lines' }, h('details', { class: 'bill-lines' }, h('summary', {}, 'See the lines'), h('ul', {}, (b.lines || []).map((l) => h('li', {}, `${l.description}${l.meter ? ` (meter ${l.meter})` : ''}${l.units != null ? `, ${l.units}${l.unit ? ' ' + l.unit : ''} used` : ''}${l.quantity > 1 ? `, ${l.quantity} of them` : ''}: `, h('strong', {}, money(l.amount_cents))))))))))) : h('p', { class: 'muted' }, 'No bills yet. Calculate to make them.'),
       printBox);
   };
   draw();
@@ -215,7 +216,7 @@ export const approvals = safe(async () => {
     }) : [h('li', {}, h('p', { class: 'notice' }, '✓ Nothing waiting.'))]));
   };
   draw();
-  return h('div', {}, h('h1', {}, 'Approvals'), h('p', {}, 'Requests from staff to change a customer account. The person who asked cannot approve their own request.'), ul);
+  return h('div', {}, h('h1', {}, 'Approvals'), h('p', {}, has('approver') ? 'Requests from staff to change a customer account. The person who asked cannot approve their own request.' : 'Requests from staff to change a customer account. You can see what is waiting here; a person with the Approver role decides them.'), ul);
 });
 
 // ---------- accounts ----------
@@ -331,7 +332,7 @@ export const account = safe(async (id) => {
   }
   const canManage = has('billing_clerk', 'customer_service', 'city_admin');
   const setSvc = async (code, enabled, quantity, msg) => {
-    try { await api('POST', `/api/staff/accounts/${id}/services`, { code, enabled, quantity }); await redo(); announce(msg); } catch (e) { showError(svcSec, e.message); }
+    try { await api('POST', `/api/staff/accounts/${id}/services`, { code, enabled, quantity }); await redo(); announce(msg); flash(svcSec.querySelector('h2'), msg); } catch (e) { showError(svcSec, e.message); }
   };
   const redo = async () => { const d2 = await api('GET', `/api/staff/accounts/${id}`); d.services = d2.services; d.meters = d2.meters; drawSvc(); };
   const svcSec = h('section', { class: 'card', 'aria-labelledby': 'svc-h' });
@@ -372,8 +373,8 @@ export const account = safe(async (id) => {
       const f = h('form', { class: 'card', novalidate: true }, h('h2', { tabindex: '-1' }, `Reading of ${Number(r.value).toLocaleString()} on ${plainDate(r.read_at)}`),
         field({ id: 'fv', label: 'The right meter number', inputmode: 'decimal', required: true, autocomplete: 'off' }),
         field({ id: 'fr', label: 'What went wrong', hint: 'For example: "Reader wrote 15000, meter shows 14500."', tag: 'textarea', required: true }),
-        h('div', { class: 'actions' }, h('button', { class: 'btn secondary', type: 'button', id: 'fprev' }, 'Show what changes'), h('button', { class: 'btn', type: 'submit' }, 'Send the fix'), h('button', { class: 'btn secondary', type: 'button', onclick: () => fill(panel) }, 'Cancel')),
-        out);
+        out,
+        h('div', { class: 'actions' }, h('button', { class: 'btn secondary', type: 'button', id: 'fprev' }, 'Show what changes'), h('button', { class: 'btn', type: 'submit' }, 'Send the fix'), h('button', { class: 'btn secondary', type: 'button', onclick: () => fill(panel) }, 'Cancel')));
       const val = () => { const v = Number(f.querySelector('#fv').value.replace(/[,\s]/g, '')); if (!(v >= 0) || f.querySelector('#fv').value.trim() === '') throw new Error('Please type the right meter number.'); return v; };
       const show = (p) => fill(out, h('div', { class: 'notice' + (p.amount_cents > 0 ? ' warn' : '') },
         h('p', {}, `Reading: ${p.old_value.toLocaleString()} → ${p.new_value.toLocaleString()}.`),
@@ -402,11 +403,11 @@ export const account = safe(async (id) => {
     const msel = h('select', { id: 'msvc' }, city.services.filter((x) => x.kind === 'metered' && x.enabled && have.has(x.code)).map((x) => h('option', { value: x.code }, x.name)));
     fill(svcSec, h('h2', { id: 'svc-h' }, 'Services and meters'),
       rows.length ? h('ul', { class: 'list' }, rows) : h('p', { class: 'muted' }, 'No services yet.'),
-      canManage && addable.length ? h('div', { class: 'addbox' }, h('h3', {}, 'Add a service'),
+      canManage && addable.length ? h('details', { class: 'addbox' }, h('summary', { class: 'label' }, 'Add a service'),
         h('div', { class: 'addgrid' }, h('div', {}, h('label', { for: 'addsvc' }, 'Service to add'), sel), h('div', {}, h('label', { for: 'addq' }, 'How many'), aq),
           h('button', { class: 'btn', type: 'button', onclick: () => setSvc(sel.value, true, Math.max(1, parseInt(aq.value, 10) || 1), 'Service added.') }, 'Add this service'))) : null,
       h('h3', {}, 'Meters'), meterRows.length ? h('ul', { class: 'list' }, meterRows) : h('p', { class: 'muted' }, 'No meters.'),
-      canManage && msel.children.length ? h('div', { class: 'addbox' }, h('h3', {}, 'Add a meter'),
+      canManage && msel.children.length ? h('details', { class: 'addbox' }, h('summary', { class: 'label' }, 'Add a meter'),
         h('div', { class: 'addgrid' }, h('div', {}, h('label', { for: 'msvc' }, 'Meter for'), msel), h('div', {}, h('label', { for: 'mser' }, 'Meter number'), mser), h('div', {}, h('label', { for: 'mloc' }, 'Where on the property (optional)'), mloc),
         h('button', { class: 'btn', type: 'button', onclick: async () => {
           if (!mser.value.trim()) { showError(svcSec, 'Please type the meter number.'); return; }
@@ -416,7 +417,7 @@ export const account = safe(async (id) => {
   drawSvc();
   out.append(h('a', { href: '#/staff/accounts' }, '← All accounts'), h('h1', {}, a.name), h('p', { class: 'muted' }, `${a.service_address} - Account ${a.account_number}`),
     h('section', { class: 'card' }, h('p', { class: 'muted' }, 'Balance'), h('p', { class: 'owe' }, money(d.balance_cents))), buttons, panel,
-    staffPlan(d.arrangement), svcSec,
+    ...[staffPlan(d.arrangement)].filter(Boolean),
     h('h2', {}, 'Bills'),
     d.bills.length ? h('table', { class: 'tbl' }, h('thead', {}, h('tr', {}, h('th', {}, 'Period'), h('th', {}, 'Due'), h('th', {}, 'Amount'), h('th', {}, 'Paid?'))),
       h('tbody', {}, d.bills.map((b) => h('tr', {}, h('td', { 'data-label': 'Period' }, `${plainDate(b.period_start)} to ${plainDate(b.period_end)}`), h('td', { 'data-label': 'Due' }, plainDate(b.due_date)),
@@ -426,7 +427,8 @@ export const account = safe(async (id) => {
     d.ledger.length ? h('table', { class: 'tbl' }, h('thead', {}, h('tr', {}, h('th', {}, 'Date'), h('th', {}, 'What'), h('th', {}, 'Amount'))),
       h('tbody', {}, d.ledger.map((l) => h('tr', {}, h('td', { 'data-label': 'Date' }, plainDate(l.created_at)), h('td', { 'data-label': 'What' }, `${({ bill: 'Bill', payment: 'Payment', adjustment: 'Adjustment', charge: 'Charge', penalty: 'Late charge', refund: 'Refund', reversal: 'Reversal' })[l.kind] || l.kind}${l.memo ? ': ' + plainNote(l.memo) : ''}`,
         has('approver') && l.kind !== 'reversal' && !l.reversed ? h('div', {}, h('button', { class: 'btn secondary small', type: 'button', 'aria-label': `Reverse this ${l.kind} of ${money(l.amount_cents)}`, onclick: () => reverse(l) }, 'Reverse')) : l.reversed ? h('div', { class: 'muted' }, 'Reversed') : null),
-        h('td', { 'data-label': 'Amount', class: 'amount' }, money(l.amount_cents)))))) : h('p', { class: 'muted' }, 'No activity yet.'));
+        h('td', { 'data-label': 'Amount', class: 'amount' }, money(l.amount_cents)))))) : h('p', { class: 'muted' }, 'No activity yet.'),
+    svcSec);
   // A mistake is undone by a new entry that cancels it out. Nothing is ever deleted.
   function reverse(l) {
     mini(`Reverse this entry: ${money(l.amount_cents)}`, [
@@ -514,7 +516,6 @@ export const disputes = safe(async () => {
   return h('div', {}, h('h1', {}, 'Bill questions'), ul);
 });
 
-void todayIso;
 
 
 // ---------- service requests ----------
@@ -529,7 +530,7 @@ const NEXT_STEP = {
 
 export const requests = safe(async () => {
   const host = h('div'); const note = h('div', { role: 'status' });
-  const tabs = h('div', { class: 'actions row', role: 'group', 'aria-label': 'Which requests to show' });
+  const tabs = h('div', { class: 'seg', role: 'group', 'aria-label': 'Which requests to show' });
   let which = 'active';
   const load = async () => {
     const { requests: list } = await api('GET', `/api/staff/requests?status=${which}`);
@@ -581,7 +582,7 @@ export const shutoffs = safe(async () => {
   const canOrder = has('billing_clerk');
   const host = h('div'), msg = h('div', { role: 'status' });
   const load = async () => {
-    const [o, l] = await Promise.all([api('GET', '/api/staff/work-orders'), canOrder ? api('GET', `/api/staff/shutoff?as_of=${todayIso()}`) : { accounts: [] }]);
+    const [o, l] = await Promise.all([api('GET', '/api/staff/work-orders'), canOrder ? api('GET', '/api/staff/shutoff') : { accounts: [] }]);
     const order = async (account_id, kind) => {
       const ok = await confirmDialog({ title: kind === 'shutoff' ? 'Order a shutoff?' : 'Order a reconnect?', body: kind === 'shutoff' ? 'A field worker will see the address and shut off service. Please be sure the customer has had their notice.' : 'A field worker will see the address and turn service back on.', yes: 'Yes, send the order', no: 'No, go back' });
       if (!ok) return;

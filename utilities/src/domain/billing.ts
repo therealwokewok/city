@@ -194,12 +194,18 @@ export async function approveRun(c: pg.PoolClient, actor: string, runId: string)
 }
 
 // ---------- late charges and shutoff list ----------
-export async function runPenalties(c: pg.PoolClient, actor: string, asOf: string) {
+/** Today in the city's own time zone. A browser in another zone, or a server on UTC, may already be on tomorrow. */
+export async function cityToday(c: pg.PoolClient): Promise<string> {
+  // (The test suite sets TEST_TODAY so it can bill months ahead; it is ignored outside tests.)
+  if (process.env.NODE_ENV === 'test' && process.env.TEST_TODAY) return process.env.TEST_TODAY;
+  return (await c.query(`select (now() at time zone timezone)::date::text as d from cities where id = app_city()`)).rows[0].d as string;
+}
+
+export async function runPenalties(c: pg.PoolClient, actor: string, asOf?: string) {
   await requirePerm(c, 'runs.manage');
   // Late charges only for bills that are really late: never for a date that has not come yet.
-  // (The test suite sets TEST_TODAY so it can bill months ahead; it is ignored outside tests.)
-  const today = process.env.NODE_ENV === 'test' && process.env.TEST_TODAY ? process.env.TEST_TODAY
-    : (await c.query(`select (now() at time zone timezone)::date::text as d from cities where id = app_city()`)).rows[0].d as string;
+  const today = await cityToday(c);
+  asOf ??= today;
   if (asOf > today) throw bad('Late charges can only be added as of today or an earlier date');
   const s = await loadSettings(c);
   await elevate(c, 'ledger.post');
@@ -227,7 +233,8 @@ export async function runPenalties(c: pg.PoolClient, actor: string, asOf: string
   return { charged: count, total_cents: total, on_payment_plan: skipped };
 }
 
-export async function shutoffList(c: pg.PoolClient, asOf: string) {
+export async function shutoffList(c: pg.PoolClient, asOf?: string) {
+  asOf ??= await cityToday(c);
   const s = await loadSettings(c);
   const r = await c.query(
     `select a.id, a.account_number, a.name, a.service_address, (bal.balance - coalesce(nd.notyet, 0)) as overdue_cents

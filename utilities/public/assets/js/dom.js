@@ -40,6 +40,13 @@ export function plainDate(iso) { // 'YYYY-MM-DD' or a timestamp, shown the same 
 export const todayIso = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
 
 export function announce(msg) { const l = $('#live'); l.textContent = ''; setTimeout(() => { l.textContent = msg; }, 50); }
+/** A short "Saved." next to a control, for people who cannot hear the screen-reader announcement. Gone after a moment. */
+export function flash(after, msg) {
+  if (!after) return;
+  after.parentNode.querySelectorAll('.flash').forEach((x) => x.remove());
+  const f = h('span', { class: 'status ok flash' }, '✓ ', msg);
+  after.after(f); setTimeout(() => f.remove(), 4000);
+}
 
 /** A labeled text field: label above, hint, input, and a place for a message. */
 export function field({ id, label, hint, type = 'text', value = '', ...rest }) {

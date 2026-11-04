@@ -1,4 +1,4 @@
-import { h, field, money, plainDate, plainNote, showError, busy, confirmDialog, announce, fill } from '../dom.js';
+import { h, field, money, plainDate, plainNote, showError, busy, confirmDialog, announce, fill, flash } from '../dom.js';
 import { api, state } from '../api.js';
 import { mountPaymentElement } from '../stripe.js';
 
@@ -17,13 +17,13 @@ function planSection(id, d) {
   const p = d.arrangement;
   const box = h('section', { class: 'card', 'aria-labelledby': 'plan-h' }, h('h2', { id: 'plan-h' }, 'Payment plan'));
   if (p && p.status === 'approved' && p.state !== 'paid_off') {
-    box.append(
+    box.append(...[
       p.state === 'behind' ? h('p', { class: 'notice warn' }, `You are behind on your plan. Please pay ${money(p.next.amount_cents)} as soon as you can, or call City Hall.`)
         : h('p', { class: 'notice' }, '✓ Your plan is approved and you are keeping up with it.'),
       p.next ? h('p', {}, `Next payment: ${money(p.next.amount_cents)} by ${plainDate(p.next.due)}.`) : null,
       planRows(p.schedule, p.next),
       h('p', { class: 'hint' }, 'Any payment you make counts toward the plan. New bills are still due on their own dates.'),
-      p.next ? h('div', { class: 'actions' }, h('a', { class: 'btn', href: `#/pay/${id}` }, `Pay ${money(p.next.amount_cents)} now`)) : null);
+      p.next ? h('div', { class: 'actions' }, h('a', { class: 'btn', href: `#/pay/${id}` }, `Pay ${money(p.next.amount_cents)} now`)) : null].filter(Boolean));
     return box;
   }
   if (p && p.status === 'pending') {
@@ -39,7 +39,7 @@ function planSection(id, d) {
     return box;
   }
   if (p && p.status === 'declined') box.append(h('p', { class: 'notice warn' }, `The city could not approve your last request. ${p.decision_note || ''}`));
-  if (d.balance_cents < 200) { box.append(h('p', { class: 'muted' }, 'If you ever need more time to pay a bill, you can ask for a payment plan here.')); return box; }
+  if (d.balance_cents < 200) return p && p.status === 'declined' ? box : null; // nothing to ask for
   const sel = h('select', { id: 'n' }, [2, 3, 4, 5, 6, 9, 12].filter((n) => d.balance_cents >= n * 100).map((n) =>
     h('option', { value: String(n) }, `${n} payments of about ${money(Math.ceil(d.balance_cents / n))}`)));
   const form = h('form', { novalidate: true, hidden: true },
@@ -48,7 +48,7 @@ function planSection(id, d) {
     field({ id: 'why', label: 'Why do you need more time?', hint: 'A sentence or two is fine. For example: "Medical bills this month."', tag: 'textarea', maxlength: 1000, required: true }),
     h('div', { class: 'actions' }, h('button', { class: 'btn', type: 'submit' }, 'Send my request to the city')));
   const ask = h('button', { class: 'btn secondary', type: 'button', 'aria-expanded': 'false' }, 'Ask for a payment plan');
-  ask.addEventListener('click', () => { form.hidden = false; ask.hidden = true; form.querySelector('select').focus(); });
+  ask.addEventListener('click', () => { form.hidden = false; ask.parentElement.hidden = true; form.querySelector('select').focus(); });
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
     const reason = form.querySelector('#why').value.trim();
@@ -142,7 +142,7 @@ export async function account(id) {
   const a = d.account;
   const toggle = h('input', { type: 'checkbox', id: 'paperless', checked: a.paperless ? true : null });
   toggle.addEventListener('change', async () => {
-    try { await api('PATCH', `/api/resident/accounts/${id}`, { paperless: toggle.checked }); announce(toggle.checked ? 'Paper bills turned off' : 'Paper bills turned on'); }
+    try { await api('PATCH', `/api/resident/accounts/${id}`, { paperless: toggle.checked }); const m = toggle.checked ? 'Paper bills turned off' : 'Paper bills turned on'; announce(m); flash(toggle.closest('label'), m); }
     catch (err) { toggle.checked = !toggle.checked; showError(toggle.closest('section'), err.message); }
   });
   return h('div', {},
@@ -153,17 +153,17 @@ export async function account(id) {
       h('p', { class: 'muted' }, owedText(d.balance_cents)),
       h('p', { class: 'owe' }, money(Math.abs(d.balance_cents))),
       d.balance_cents > 0 ? h('div', { class: 'actions' }, h('a', { class: 'btn', href: `#/pay/${id}` }, `Pay ${money(d.balance_cents)} now`)) : h('span', { class: 'status ok' }, '✓ Nothing due')),
-    h('h2', {}, 'Your bills'),
-    d.bills.length ? h('ul', { class: 'list' }, d.bills.map((b) => h('li', {},
-      h('div', { class: 'row2' }, h('strong', {}, period(b)), h('span', { class: 'amount' }, money(b.total_cents))),
-      h('p', { class: 'muted' }, `Due ${plainDate(b.due_date)}`),
-      h('p', {}, billStatus(b)),
-      h('a', { href: `#/bill/${id}/${b.id}` }, 'Open this bill')))) : h('p', { class: 'muted' }, 'No bills yet.'),
-    planSection(id, d),
-    h('h2', {}, 'Recent activity'),
-    d.ledger.length ? h('ul', { class: 'list' }, d.ledger.map((l) => h('li', {},
-      h('div', { class: 'row2' }, h('span', {}, kindName(l.kind)), h('span', { class: 'amount' + (l.amount_cents < 0 ? ' credit' : '') }, money(l.amount_cents))),
-      h('p', { class: 'muted' }, `${plainDate(l.created_at)}${l.memo ? ' - ' + plainNote(l.memo) : ''}`)))) : h('p', { class: 'muted' }, 'Nothing yet.'),
+    h('section', { class: 'card', 'aria-labelledby': 'bills-h' }, h('h2', { id: 'bills-h' }, 'Your bills'),
+      d.bills.length ? h('ul', { class: 'list' }, d.bills.map((b) => h('li', {},
+        h('a', { class: 'row2', href: `#/bill/${id}/${b.id}` },
+          h('span', {}, h('strong', {}, period(b)), h('br'), h('span', { class: 'muted' }, `Due ${plainDate(b.due_date)}`)),
+          h('span', { class: 'amount' }, money(b.total_cents))),
+        h('p', {}, billStatus(b))))) : h('p', { class: 'muted' }, 'No bills yet.')),
+    ...[planSection(id, d)].filter(Boolean),
+    h('section', { class: 'card', 'aria-labelledby': 'act-h' }, h('h2', { id: 'act-h' }, 'Recent activity'),
+      d.ledger.length ? h('ul', { class: 'list' }, d.ledger.map((l) => h('li', {},
+        h('div', { class: 'row2' }, h('span', {}, kindName(l.kind)), h('span', { class: 'amount' + (l.amount_cents < 0 ? ' credit' : '') }, money(l.amount_cents))),
+        h('p', { class: 'muted' }, `${plainDate(l.created_at)}${l.memo ? ' - ' + plainNote(l.memo) : ''}`)))) : h('p', { class: 'muted' }, 'Nothing yet.')),
     h('section', { class: 'card' },
       h('h2', {}, 'Paper bills'),
       h('label', { class: 'check', for: 'paperless' }, toggle, 'Stop mailing me a paper bill'),
@@ -189,7 +189,7 @@ export async function bill(accountId, billId) {
       fill(disputeForm, h('p', { class: 'notice' }, "Thank you. City Hall got your message and will contact you. You don't need to pay the part in question until it is checked, but please call us if the due date is close."));
     } catch (err) { showError(disputeForm, err.message); }
   });
-  const askBtn = h('button', { class: 'btn secondary', type: 'button', 'aria-expanded': 'false', onclick: (e) => { disputeForm.hidden = false; e.target.setAttribute('aria-expanded', 'true'); disputeForm.querySelector('textarea').focus(); } }, 'Something looks wrong');
+  const askBtn = h('button', { class: 'btn secondary', type: 'button', 'aria-expanded': 'false', onclick: (e) => { disputeForm.hidden = false; e.target.hidden = true; disputeForm.querySelector('textarea').focus(); } }, 'Something looks wrong');
   return h('div', {},
     h('a', { href: `#/account/${accountId}` }, '← Back'),
     h('h1', {}, `Bill for ${period(b)}`),
@@ -306,7 +306,7 @@ async function feeStep(host, form, r, cents) {
     if (quoted.error) { showError(msg, quoted.error.message || 'Please check the card or bank details.'); return; }
     const { q, token } = quoted;
     const payBtn = h('button', { class: 'btn', type: 'button' }, `Pay ${money(q.total_cents)}`);
-    fill(review, h('section', { class: 'card', 'aria-labelledby': 'rev-h' }, h('h3', { id: 'rev-h', tabindex: '-1' }, 'Check your payment'),
+    fill(review, h('section', { class: 'review-box', 'aria-labelledby': 'rev-h' }, h('h3', { id: 'rev-h', tabindex: '-1' }, 'Check your payment'),
       h('p', {}, `Paying with: ${q.method_label}`),
       h('table', { class: 'bill' }, h('tbody', {},
         h('tr', {}, h('td', {}, 'Bill payment'), h('td', { class: 'amt' }, money(q.amount_cents))),
@@ -375,10 +375,8 @@ export async function requests() {
     h('a', { href: '#/' }, '← Back'),
     h('h1', {}, 'Service requests'),
     h('p', {}, 'Need to start, stop or move your service? Pick one below. City Hall will take it from there.'),
-    h('div', { class: 'card' }, h('h2', {}, 'Make a new request'),
-      h('ul', { class: 'list' }, Object.entries(REQUEST_KINDS).map(([k, [t, d]]) =>
-        h('li', {}, h('a', { class: 'row2', href: `#/requests/new/${k}` }, h('span', {}, h('strong', {}, t), h('br'), h('span', { class: 'muted' }, d))))))),
-    h('h2', {}, 'Your requests'),
+    // What is already under way comes first, so a person checking back does not scroll past the menu.
+    list.length ? h('h2', {}, 'Your requests') : null,
     list.length ? h('ul', { class: 'list' }, list.map((r) => {
       const [label, tone] = STATUS_TEXT[r.status];
       return h('li', { class: 'card' },
@@ -386,7 +384,10 @@ export async function requests() {
         h('p', {}, h('span', { class: `status ${tone}` }, ICON[r.status], label)),
         h('p', { class: 'muted' }, [r.account_number ? `Account ${r.account_number}` : null, r.service_address, r.requested_date ? `For ${plainDate(String(r.requested_date).slice(0, 10))}` : null].filter(Boolean).join(', ')),
         r.resolution ? h('p', {}, h('strong', {}, 'From City Hall: '), r.resolution) : null);
-    })) : h('p', { class: 'muted' }, 'You have not made any requests yet.'));
+    })) : null,
+    h('div', { class: 'card' }, h('h2', {}, 'Make a new request'),
+      h('ul', { class: 'list' }, Object.entries(REQUEST_KINDS).map(([k, [t, d]]) =>
+        h('li', {}, h('a', { class: 'row2', href: `#/requests/new/${k}` }, h('span', {}, h('strong', {}, t), h('br'), h('span', { class: 'muted' }, d))))))));
 }
 
 export async function requestNew(kind) {
