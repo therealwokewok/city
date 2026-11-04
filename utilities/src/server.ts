@@ -28,6 +28,10 @@ import { assertMoneyAllowed, loadSettings, MONEY_SETTINGS, themeCss, validateSet
 import { fmt as fmtCents } from './money.js';
 import { feeFor, feeNotice, methodLabel } from './fees.js';
 import { describeDb, loadDbConfig, saveDbConfig, testDb, validateDbConfig } from './config.js';
+import { describeServices, loadServicesConfig, saveServicesConfig, validateEmailConfig } from './services-config.js';
+import { makeEmail } from './adapters/email.js';
+import { checkStripeKey, FakePaymentsAdapter, StripeAdapter } from './adapters/payments.js';
+import { connectStripe, domainRecords } from './setup.js';
 import { migrationsDir } from './migrate.js';
 
 declare module 'fastify' {
@@ -47,6 +51,7 @@ export interface AppDeps {
   trustProxy?: boolean | number; // true trusts every hop; a number trusts that many proxies in front
   quiet?: boolean;             // no logging at all; the tests set this
   dbSource?: 'env' | 'file' | 'none'; // where the database connection came from; 'file' lets the site administrator change it
+  servicesSource?: { email: 'env' | 'file' | 'none'; stripe: 'env' | 'file' | 'none' }; // same for email and Stripe
 }
 
 const parse = <T extends ZodTypeAny>(schema: T, data: unknown): z.infer<T> => {
@@ -309,6 +314,81 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
     const file = saveDbConfig(cfg);
     await tx(ctxOf(req), (c) => audit(c, me(req), 'database.update', { mode: cfg.mode, host: describeDb({ source: 'file', file, config: cfg }).host }));
     return { ok: true, file, restart: true };
+  });
+
+  // ---------- email, for the site administrator ----------
+  const emailSource = () => deps.servicesSource?.email ?? 'none';
+  app.get('/api/staff/email', async (req) => {
+    need(req, 'system.manage');
+    return { ...describeServices(loadServicesConfig()).email, editable: emailSource() !== 'env', running: deps.email.name ?? 'unknown' };
+  });
+  // A blank key keeps the saved one, so the screen never has to show it.
+  const emailBody = (b: any) => {
+    const saved = loadServicesConfig().email.config;
+    const given = { ...(b?.email ?? {}) };
+    if (saved && !given.api_key && saved.provider === given.provider) given.api_key = saved.api_key;
+    if (saved && !given.secret_key && saved.provider === given.provider) { given.secret_key = saved.secret_key; given.access_key ||= saved.access_key; }
+    if (saved && saved.provider === given.provider && !given.domain_id) given.domain_id = saved.domain_id;
+    try { return validateEmailConfig(given); } catch (e: any) { throw bad(e.message); }
+  };
+  app.post('/api/staff/email/test', async (req) => {
+    need(req, 'system.manage');
+    const cfg = emailBody(req.body);
+    const to = req.auth!.email;
+    try { await makeEmail(cfg).send(to, 'utilities: test message', `This is the test message from the Email screen. If you can read this, email is working.\n\nSent through ${cfg.provider} as ${cfg.from}.`); }
+    catch (e: any) { throw bad(`The message was not accepted: ${e.message?.slice(0, 300)}`); }
+    return { ok: true, to };
+  });
+  app.post('/api/staff/email/domain', async (req) => {
+    need(req, 'system.manage');
+    const cfg = emailBody(req.body);
+    try { return await domainRecords(cfg); } catch (e: any) { throw bad(e.message?.slice(0, 300)); }
+  });
+  app.put('/api/staff/email', async (req) => {
+    need(req, 'system.manage'); requireStepUp(req.auth!);
+    if (emailSource() === 'env') throw bad('Email is set by the host through EMAIL_API_URL. Change it there.');
+    const cfg = emailBody(req.body);
+    saveServicesConfig({ email: cfg });
+    if ('set' in deps.email) (deps.email as any).set(makeEmail(cfg));
+    if (deps.servicesSource) deps.servicesSource.email = 'file';
+    await tx(ctxOf(req), (c) => audit(c, me(req), 'email.update', { provider: cfg.provider, from: cfg.from }));
+    return { ok: true, applied: 'set' in deps.email };
+  });
+
+  // ---------- online payments (Stripe), for the city administrator: the keys belong to the city's own account ----------
+  const stripeSource = () => deps.servicesSource?.stripe ?? 'none';
+  app.get('/api/staff/payments/stripe', async (req) => {
+    need(req, 'settings.money');
+    const d = describeServices(loadServicesConfig()).stripe;
+    return { ...d, editable: stripeSource() !== 'env', running: deps.payments.name, live: deps.payments.live ?? false, site: req.cityHost };
+  });
+  app.post('/api/staff/payments/stripe/check', async (req) => {
+    need(req, 'settings.money');
+    const b = parse(z.object({ secret_key: z.string().max(200) }), req.body);
+    return checkStripeKey(b.secret_key);
+  });
+  app.put('/api/staff/payments/stripe', async (req) => {
+    need(req, 'settings.money'); requireStepUp(req.auth!);
+    if (stripeSource() === 'env') throw bad('Stripe is set by the host through STRIPE_SECRET_KEY. Change it there.');
+    const b = parse(z.object({ publishable_key: z.string().max(200), secret_key: z.string().max(200) }), req.body);
+    let cfg;
+    try { cfg = await connectStripe(b.publishable_key.trim(), b.secret_key.trim(), req.cityHost!); } catch (e: any) { throw bad(e.message?.slice(0, 300)); }
+    const demo = await tx(ctxOf(req), (c) => loadSettings(c).then((s) => s.demo_mode));
+    if (demo && cfg.publishable_key.startsWith('pk_live_')) throw bad('This city is in demo mode, which refuses live keys. Use test keys for the demo, or turn demo mode off first.');
+    saveServicesConfig({ stripe: cfg });
+    if ('set' in deps.payments) (deps.payments as any).set(new StripeAdapter(cfg.secret_key, cfg.webhook_secret, 300, fetch, cfg.publishable_key));
+    if (deps.servicesSource) deps.servicesSource.stripe = 'file';
+    await tx(ctxOf(req), (c) => audit(c, me(req), 'stripe.update', { mode: cfg.publishable_key.startsWith('pk_live_') ? 'live' : 'test', webhook: cfg.webhook_id }));
+    return { ok: true, webhook_id: cfg.webhook_id, mode: cfg.publishable_key.startsWith('pk_live_') ? 'live' : 'test' };
+  });
+  app.delete('/api/staff/payments/stripe', async (req) => {
+    need(req, 'settings.money'); requireStepUp(req.auth!);
+    if (stripeSource() === 'env') throw bad('Stripe is set by the host through STRIPE_SECRET_KEY. Change it there.');
+    saveServicesConfig({ stripe: undefined });
+    if ('set' in deps.payments) (deps.payments as any).set(new FakePaymentsAdapter());
+    if (deps.servicesSource) deps.servicesSource.stripe = 'none';
+    await tx(ctxOf(req), (c) => audit(c, me(req), 'stripe.update', { mode: 'off' }));
+    return { ok: true };
   });
 
   app.get('/healthz', async () => ({ ok: true }));

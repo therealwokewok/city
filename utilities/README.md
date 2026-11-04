@@ -21,7 +21,7 @@ See [SECURITY.md](SECURITY.md) for what is and is not covered.
 | Money | Append-only ledger, 10% (configurable) late charge rounded up, shutoff list with notice period, adjustments and refunds with one or two approvers, reversals. Each bill shows Paid, Partly paid (with what is left) or Not paid |
 | Payment plans | A resident asks online, or staff enter one for a caller; an approver approves (and can change the number of payments or the start date) or declines with a note; the resident is emailed. While the customer keeps up, the bills in the plan get no late charge and the plan amount does not count toward shutoff. See [docs/payment-plans.md](docs/payment-plans.md) |
 | Meter read fixes | A clerk picks a wrong reading and types the right number. The app reprices every bill that used it, with the rate that applied then, and sends the difference for approval. Once approved, the reading and the next reading's usage are fixed together and the customer sees "Corrected meter reading" on their account |
-| Payments | Stripe Payment Element inside the pay page (card and ACH bank account; nobody leaves the site), with signed, repeat-safe webhooks; cash and check at the counter. Autopay with a card or bank account saved the same way. Optional online payment fee shown as its own line before paying (credit cards only, all cards, and/or bank payments; see [docs/payment-fees.md](docs/payment-fees.md)). Needs `STRIPE_PUBLISHABLE_KEY`, `STRIPE_SECRET_KEY` and `STRIPE_WEBHOOK_SECRET`; a demo may use Stripe test keys |
+| Payments | Stripe Payment Element inside the pay page (card and ACH bank account; nobody leaves the site), with signed, repeat-safe webhooks; cash and check at the counter. Autopay with a card or bank account saved the same way. Optional online payment fee shown as its own line before paying (credit cards only, all cards, and/or bank payments; see [docs/payment-fees.md](docs/payment-fees.md)). The city pastes its two Stripe keys on the setup page or under Administration, Online payments, and the webhook is made for it; or the host sets `STRIPE_PUBLISHABLE_KEY`, `STRIPE_SECRET_KEY` and `STRIPE_WEBHOOK_SECRET`. A demo may use Stripe test keys |
 | Residents | Sign in, link an account with the code printed on the bill, view bills, pay all or part, ask for a payment plan, set up autopay, dispute, go paperless (bills arrive by email) |
 | Shutoffs | Staff order a shutoff only after the notice period; the field crew sees the address and marks it done; reconnect orders only after the account is paid up |
 | Service requests | New service, disconnect, move out (with a forwarding address for the final bill), move to a new address, report a leak. Residents see the status and any note from City Hall. Staff work one queue; declining needs a reason. A request never changes a bill or balance by itself |
@@ -48,7 +48,10 @@ In development, sign-in codes print to the console and payments use a fake proce
    serves a **setup page** at `/setup`. There you type the database owner's connection (one address, separate
    fields, or a local socket, with TLS off, required or verified), press Test, and the program creates the tables
    and a limited `utilities_app` role for itself. Then the city: name, state, time zone, web address, office name,
-   phone, hours, addresses, and the first administrator. The real site starts on the same port when you finish.
+   phone, hours, addresses, and the first administrator. Then email: pick Resend, Postmark, SendGrid, Mailgun,
+   Amazon SES or a relay of your own, paste its key, send yourself a test, and the page fetches or explains the DNS
+   records the city's domain needs. Then, if the city is ready, its Stripe keys: the page checks them with Stripe
+   and makes the webhook. The real site starts on the same port when you finish.
    The page knows the common hosts and picks the right verification for each: Amazon RDS and Aurora (Amazon's
    certificate bundle is fetched for you), Google Cloud SQL (through the Auth Proxy, or with the instance CA),
    Azure Database for PostgreSQL, Neon, Supabase, DigitalOcean, Heroku, Crunchy Bridge, or PostgreSQL on the same
@@ -57,12 +60,13 @@ In development, sign-in codes print to the console and payments use a fake proce
    security), the approvals and the tamper-evident ledger live inside it, and no other engine offers the same.
    Prefer settings from the host instead? Set `DATABASE_URL` (or `DATABASE_URL_FILE`) and the setup page only
    asks about the city. The ready-made `docker-compose.auto-update.yml` does that and bundles PostgreSQL.
-2. Put it behind HTTPS on its own subdomain (the app listens on this computer only; `deploy/Caddyfile` is an example proxy). Fill in `.env` (see `.env.example`). The compose file backs the database up every night; copy the backups off the computer.
+2. Put it behind HTTPS on its own subdomain (the app listens on this computer only; `deploy/Caddyfile` is an example proxy). `.env` (see `.env.example`) is only for settings the host prefers to own. The compose file backs the database up every night; copy the backups off the computer, together with the `config` folder.
 3. Work through the handoff gate in [SECURITY.md](SECURITY.md).
 4. The city creates **its own** Stripe account and keeps the keys. No platform fee is added by this software.
 
 Afterwards, a site administrator changes the database connection under Administration, Database (checked first,
-applied at restart), and a city or site administrator changes the name, state, time zone and web addresses under
+applied at restart) and the email service under Administration, Email (applied at once), a city administrator
+connects or changes Stripe under Administration, Online payments (applied at once), and a city or site administrator changes the name, state, time zone and web addresses under
 Administration, The city. Everything a resident reads, from the name of the office ("City Hall", "Village Hall")
 to the smallest online payment and the longest payment plan, is a setting. `npm run bootstrap` still works for
 scripted installs.

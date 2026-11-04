@@ -22,7 +22,7 @@ Contents: [Everyone](#everyone-signing-in-and-getting-around) · [Resident](#res
 Before there is a database or a city, the program answers every address with one page, **Set up utilities**, and
 prints an 8-digit setup code where it was started. Only someone who can read that console can use the page.
 
-1. **Step 1 of 2: the database.** First "Where is the database?": any PostgreSQL, Amazon RDS or Aurora, Google
+1. **Step 1 of 4: the database.** First "Where is the database?": any PostgreSQL, Amazon RDS or Aurora, Google
    Cloud SQL, Azure, Neon, Supabase, DigitalOcean, Heroku, Crunchy Bridge, or this same computer; each preset fills in
    the right encryption and shows a one-line tip (for Cloud SQL, say, run the Auth Proxy or paste the instance CA).
    Then choose how to connect: "One connection address" (what Neon, Supabase, RDS,
@@ -38,16 +38,39 @@ prints an 8-digit setup code where it was started. Only someone who can read tha
    you."), and names the problem when there is one ("The password was not accepted.", "A firewall may be blocking
    this server."). **Create the tables and continue** writes `config/database.json`, readable by the program only.
    If the host already set `DATABASE_URL`, this step is skipped.
-2. **Step 2 of 2: the city.** City name, state (Missouri starting values are filled in when the state is MO), time
+2. **Step 2 of 4: the city.** City name, state (Missouri starting values are filled in when the state is MO), time
    zone, the web address people will type, what residents call the office, phone, office hours, the mailing and
    remit-to addresses, the first administrator's name and email, an optional site administrator, and "Start in
-   demo mode (recommended)". **Create the city and finish**.
-3. **All set**: the real program starts on the same port within a few seconds, and the administrator signs in with
+   demo mode (recommended)". **Create the city and continue**.
+3. **Step 3 of 4: email.** Every sign-in code, paperless bill and payment-plan decision goes out by email, so the
+   program needs a way to send it. Pick a service (Resend, Postmark, SendGrid, Mailgun, Amazon SES, or a relay of
+   your own; each shows a one-line tip and its price), type the address mail comes from ("City of Example
+   Utilities <utilities@example.gov>"), and paste the service's API key (or, for SES, the access key, secret and
+   region). **Show the DNS records the domain needs** fetches them from Resend (and adds the domain to the account
+   for you) or, for the other services, says in words where to find them. **Send the test message** sends one to
+   an address you type, with the settings as typed, before anything is saved. Each mistake is named ("The API key
+   is needed", "The relay address must start with https://"). **Save and continue** writes `config/services.json`,
+   readable by the program only, and the program starts using it at once. Outside production this step has **Skip
+   for now**; in production it is required unless the host set `EMAIL_API_URL`, `EMAIL_API_TOKEN` and `EMAIL_FROM`
+   (then the step is not offered).
+4. **Step 4 of 4: online payments.** Optional, and can be done later under Administration. Paste the city's own
+   Stripe publishable and secret keys. **Check the keys** asks Stripe whose account it is ("This is the test key
+   for "City of Example" (US). The account can take payments."). **Connect Stripe and finish** checks the keys
+   again, creates the webhook Stripe uses to report payments (at `https://<the city's address>/webhooks/payments`;
+   an old one at the same address is replaced), saves everything to `config/services.json`, and switches the pay
+   page over. Mismatched keys are refused ("must both be test keys or both be live keys"), and from `localhost`
+   the step says to finish it later from the real address. **Skip for now** leaves the pretend processor in place,
+   which only works in demo mode.
+5. **All set**: the real program starts on the same port within a few seconds, and the administrator signs in with
    an emailed code at the address given. Next steps: set the rates, then add accounts.
 
 ![Step 1: the database](screens/setup-database.png)
 
 ![Step 2: the city](screens/setup-city.png)
+
+![Step 3: email](screens/setup-email.png)
+
+![Step 4: online payments](screens/setup-payments.png)
 
 ![All set](screens/setup-done.png)
 
@@ -733,7 +756,7 @@ customer" and "People, settings, rates and printing". The administrator can look
 and meters, make link codes and set up payment plans, but cannot take money, approve, or run billing.
 
 **Administration** is a set of cards: People and roles, The city and its web addresses, City settings, Colors, logo and demo mode, Updates,
-Services and rates, Printing, Activity log.
+Online payments (Stripe), Services and rates, Printing, Activity log.
 
 ![Staff home for a city administrator](screens/admin-home.png)
 
@@ -866,6 +889,24 @@ Services and rates, Printing, Activity log.
 
 ![Updates](screens/admin-updates.png)
 
+### Online payments (Stripe)
+- **Status** says whether Stripe is connected ("Connected, test keys: no real money" or "LIVE keys: real money
+  moves", or "Not connected. Residents cannot pay online; the pay page uses a pretend processor in demo mode"),
+  who set it (the host through `STRIPE_SECRET_KEY`, or this screen or the setup page), the publishable key, and the
+  webhook and the address it reports to. The secret key and the webhook secret are never shown.
+- **Connect the city's Stripe account** (or **Change the keys**): the city opens its own account at stripe.com,
+  copies the two keys from Developers, API keys, and pastes them here. **Check the keys** asks Stripe whose account
+  the secret key belongs to and whether it can take payments yet. **Connect** asks for the safety check, checks the
+  keys, makes the webhook for this city's address (replacing an old one at the same address), saves, and switches
+  the pay page over at once: "Connected with test keys. Webhook we_... is set up. Residents can pay online now."
+  Mismatched test and live keys are refused, and live keys are refused while the city is in demo mode ("Turn demo
+  mode off first"). **Disconnect Stripe** asks "Disconnect Stripe?" and puts the pretend processor back (which only
+  works in demo mode). Every change is in the activity log as "Stripe connection changed" with the mode, never a key.
+- When the host set the keys as environment variables, the screen says so and has no form.
+- Fees passed on to customers, and Apple Pay, stay under City settings.
+
+![Online payments (Stripe)](screens/admin-stripe.png)
+
 
 ### A city administrator must NOT be able to
 - Approve or decline anything, take payments, start bill runs, review readings or fix readings.
@@ -878,7 +919,7 @@ Services and rates, Printing, Activity log.
 **Tabs:** Staff home, Administration.
 
 - Staff home has one card, "People, settings, rates and printing". Administration shows People and roles, The city
-  and its web addresses, City settings, Colors, logo and demo mode, Updates, and Database.
+  and its web addresses, City settings, Colors, logo and demo mode, Updates, Database, and Email.
 - **Database**: "Where the records are" lists how the connection is set (by the host through `DATABASE_URL`, or by
   the setup page and its file), how it connects, where, the database and app user, the encryption, whether an owner
   connection for table updates is set, and the pool size; never a password. **Test the current connection** answers
@@ -889,6 +930,18 @@ Services and rates, Printing, Activity log.
 - **The city and its web addresses** works as for the city administrator above.
 
 ![Database](screens/siteadmin-database.png)
+- **Email**: "How mail is sent now" lists who set it (the host through `EMAIL_API_URL`, the setup page or this
+  screen, or nothing yet: "codes are printed where the program runs, so nobody can sign in from outside"), the
+  service, and the address mail comes from; never a key. **Set up email** (or **Change the email service**) is the
+  same form as the setup page: the service, the from-address, the key (leave it empty to keep the saved one when
+  only the address changes), and for Mailgun the sending domain, for SES the region. **Show the DNS records the
+  domain needs** fetches them from Resend (with their verified or pending status) or explains, for the other
+  services, where in that service's own screens to find them, so they can be handed to whoever manages the
+  domain. **Send me a test message** sends one to the signed-in administrator with the settings as typed, before
+  saving. **Save and use this from now on** asks for the safety check, saves to `config/services.json`, switches the
+  running sender at once, and records "Email service changed" (service and from-address only) in the activity log.
+  When the host set the variables, the page says to change them there. "What gets sent" lists every message the
+  program ever sends.
 - Names the first city administrator when a city is set up (the only role a site administrator can give). After
   that, only a city administrator adds, removes or turns off a city administrator.
 - Can change the non-money settings (phone, hours, addresses, high-use flag, safety-check minutes), colors, logo,
@@ -903,6 +956,8 @@ Services and rates, Printing, Activity log.
 ![Administration for a site administrator](screens/siteadmin-admin.png)
 
 ![Settings with the money fields greyed out](screens/siteadmin-settings.png)
+
+![Email](screens/siteadmin-email.png)
 
 ![A customer search: Not allowed](screens/siteadmin-refused.png)
 
@@ -944,7 +999,9 @@ Services and rates, Printing, Activity log.
 | "A staff role was changed" | The other administrators | On every role grant or removal |
 | Stripe's receipt | The customer | After an online payment, from Stripe |
 
-Bill questions, service requests, approvals and shutoffs are not emailed; their status shows on screen.
+Bill questions, service requests, approvals and shutoffs are not emailed; their status shows on screen. Which
+service carries the mail, and the address it comes from, is set on the setup page or the site administrator's Email
+screen; the subjects above use the city's own name.
 
 ---
 
@@ -1019,17 +1076,24 @@ Use the test users `role_1@…` and `role_2@…`. Expected result in brackets.
       administrator.
 - [ ] Save settings [safety check]; safety-check minutes 100 [refused]. Fee example line updates. Add a rate with a
       unit [shows on the bill as "4,200 gallons used"]. Empty print layout [refused]; test page prints boxes.
+- [ ] Online payments: pk_test with sk_live [refused]; Check the keys with the sandbox secret [names the account];
+      Connect [safety check; "Connected with test keys"; webhook listed]; live keys in demo mode [refused];
+      Disconnect [pay page back to the pretend processor]. Activity log shows the mode, never a key.
 
 **Site administrator**
 - [ ] Any account page [refused]; money setting [refused]; non-money setting [saved].
 - [ ] Database page shows no password; test says connected; with a host-set connection, Save [refused with
       "DATABASE_URL"].
+- [ ] Email page shows no key; Send me a test message [arrives, from the typed address]; Save [safety check; a sign-in
+      code then arrives through the new service]; change only the from-address [saved key kept]. With host-set
+      variables, no form.
 - [ ] The city page: add a second web address [saved, lower-cased]; remove the current one [refused]; an address
       another city uses [refused].
 
 **First run (on a scratch server)**
 - [ ] Start with no DATABASE_URL: setup page appears; wrong setup code [refused]; Test names a missing database as
-      creatable; Create the tables; create the city; the site starts and the footer says "Call Village Hall".
+      creatable; Create the tables; create the city; email: a missing key [named], Skip for now outside production;
+      payments: mismatched keys [refused], Skip for now; the site starts and the footer says "Call Village Hall".
 - [ ] Restart: no setup page, straight to the site.
 
 **Auditor**

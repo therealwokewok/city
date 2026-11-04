@@ -47,16 +47,16 @@ export async function auditLayout(page: Page, screen: string): Promise<string[]>
 
     // 3. Spacing grid and content inset, on every box-like component
     const textRects = (root: Element) => {
-      const rects: DOMRect[] = [];
+      const rects: (DOMRect & { what?: string })[] = [];
       const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
       let n: Node | null;
       while ((n = walker.nextNode())) {
         if (!n.textContent || !n.textContent.trim()) continue;
         const p = n.parentElement; if (!p || !vis(p) || p.closest('legend')) continue; // a legend sits on the border by design
         const range = document.createRange(); range.selectNodeContents(n);
-        for (const r of range.getClientRects()) if (r.width > 0 && r.height > 0 && r.right > 0) rects.push(r); // off-screen helpers for screen readers do not count
+        for (const r of range.getClientRects()) if (r.width > 0 && r.height > 0 && r.right > 0) rects.push(Object.assign(r, { what: '"' + n.textContent.trim().slice(0, 30) + '"' })); // off-screen helpers for screen readers do not count
       }
-      for (const el of root.querySelectorAll('input, select, textarea, button, img, svg, .status')) if (vis(el) && el !== root) rects.push(el.getBoundingClientRect());
+      for (const el of root.querySelectorAll('input, select, textarea, button, img, svg, .status')) if (vis(el) && el !== root) rects.push(Object.assign(el.getBoundingClientRect(), { what: label(el) }));
       return rects;
     };
     const isGrid4 = (v: number) => Math.abs(v / 4 - Math.round(v / 4)) < 0.26; // computed values are fractional (rem), allow a pixel of rounding
@@ -77,14 +77,13 @@ export async function auditLayout(page: Page, screen: string): Promise<string[]>
       if (!boxed || el.matches('.btn, input, select, textarea, .status')) continue;
       const r = el.getBoundingClientRect();
       const inner = { left: r.left + px(s.borderLeftWidth), right: r.right - px(s.borderRightWidth), top: r.top + px(s.borderTopWidth), bottom: r.bottom - px(s.borderBottomWidth) };
-      let minL = Infinity, minR = Infinity, minT = Infinity, minB = Infinity;
+      const min: Record<string, { v: number; what?: string }> = { left: { v: Infinity }, right: { v: Infinity }, top: { v: Infinity }, bottom: { v: Infinity } };
       for (const t of textRects(el)) {
-        minL = Math.min(minL, t.left - inner.left); minR = Math.min(minR, inner.right - t.right);
-        minT = Math.min(minT, t.top - inner.top); minB = Math.min(minB, inner.bottom - t.bottom);
+        for (const [k, v] of [['left', t.left - inner.left], ['right', inner.right - t.right], ['top', t.top - inner.top], ['bottom', inner.bottom - t.bottom]] as [string, number][]) if (v < min[k].v) min[k] = { v, what: t.what };
       }
       const need = 12;
-      const bad = [['left', minL], ['right', minR], ['top', minT], ['bottom', minB]].filter(([, v]) => (v as number) < need - 0.5 && Number.isFinite(v as number));
-      if (bad.length) out.push(`Content inset: ${label(el)} content is only ${bad.map(([k, v]) => `${Math.round(v as number)}px from the ${k}`).join(', ')} (needs ${need}px)`);
+      const bad = Object.entries(min).filter(([, m]) => m.v < need - 0.5 && Number.isFinite(m.v));
+      if (bad.length) out.push(`Content inset: ${label(el)} content is only ${bad.map(([k, m]) => `${Math.round(m.v)}px from the ${k} (${m.what})`).join(', ')} (needs ${need}px)`);
     }
 
     // 4. Nothing cut off or clipped

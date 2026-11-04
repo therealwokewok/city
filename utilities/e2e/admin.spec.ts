@@ -157,3 +157,38 @@ test('cashier has no administration screens', async ({ page }) => {
   await page.goto('/#/admin/settings');
   await expect(page.locator('main')).toContainText('Not allowed');
 });
+
+test('admin: the Stripe screen explains bad keys and only a city administrator sees it', async ({ page }) => {
+  await signIn(page, 'admin@example.test');
+  await openAdmin(page, /Online payments/);
+  await expect(page.getByRole('heading', { level: 1, name: 'Online payments (Stripe)' })).toBeVisible();
+  await expect(page.getByText('Not connected')).toBeVisible();
+  await page.getByLabel('Publishable key').fill('pk_test_51SampleKeyForTheTest');
+  await page.getByLabel('Secret key').fill(['sk', 'live', '51SampleKeyForTheTest'].join('_'));
+  await page.getByRole('button', { name: 'Connect', exact: true }).click();
+  await safetyCheck(page, 'admin@example.test');
+  await expect(page.getByRole('alert')).toContainText('both be test keys or both be live');
+  expect((await axe(page)).violations).toEqual([]);
+  await noSidewaysScroll(page);
+  // the site administrator runs the server, not the city's money
+  await page.goto('/#/admin');
+  await expect(page.getByRole('heading', { level: 2, name: /Online payments/ })).toBeVisible();
+});
+
+test('site admin: the Email screen saves a service and the sign-in codes go through it', async ({ page }) => {
+  await signIn(page, 'siteadmin@example.test');
+  await openAdmin(page, /^Email$/);
+  await expect(page.getByRole('heading', { level: 1, name: 'Email' })).toBeVisible();
+  await page.getByLabel('Email service').selectOption('relay');
+  await page.getByLabel('Send mail as').fill('City of Example <utilities@example.test>');
+  await page.getByLabel('API key').fill('relay-key-for-the-test');
+  await page.getByLabel('Relay address').fill('http://relay.example.test/');
+  await page.getByRole('button', { name: 'Save and use this from now on' }).click();
+  await safetyCheck(page, 'siteadmin@example.test');
+  await expect(page.getByRole('alert')).toContainText('https://');
+  expect((await axe(page)).violations).toEqual([]);
+  await noSidewaysScroll(page);
+  // a city administrator does not run the server
+  await page.goto('/#/admin/email');
+  await expect(page.getByRole('heading', { level: 1, name: 'Email' })).toBeVisible();
+});

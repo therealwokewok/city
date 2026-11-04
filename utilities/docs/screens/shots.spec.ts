@@ -380,6 +380,10 @@ test('city admin', async ({ page }) => {
   await page.goto('/#/admin/appearance');
   await expect(page.getByRole('heading', { level: 1, name: 'Colors, logo and demo mode' })).toBeVisible();
   await shot(page, 'admin-appearance');
+  await page.goto('/#/admin/stripe');
+  await expect(page.getByRole('heading', { level: 1, name: 'Online payments (Stripe)' })).toBeVisible();
+  await page.getByLabel('Publishable key').fill('pk_test_51SampleKeyForThePicture');
+  await shot(page, 'admin-stripe');
   await page.goto('/#/admin/updates');
   await expect(page.getByRole('heading', { level: 1, name: 'Updates' })).toBeVisible();
   await shot(page, 'admin-updates');
@@ -413,6 +417,14 @@ test('site admin', async ({ page }) => {
   await page.getByRole('button', { name: 'Test the current connection' }).click();
   await expect(page.getByText(/Connected to PostgreSQL/)).toBeVisible();
   await shot(page, 'siteadmin-database');
+  await page.goto('/#/admin/email');
+  await expect(page.getByRole('heading', { level: 1, name: 'Email' })).toBeVisible();
+  await page.getByLabel('Email service').selectOption('postmark');
+  await page.getByLabel('Send mail as').fill('City of Example Utilities <utilities@example.gov>');
+  await page.getByLabel('API key').fill('postmark-key-for-the-picture');
+  await page.getByRole('button', { name: 'Show the DNS records the domain needs' }).click();
+  await expect(page.getByText(/DKIM/)).toBeVisible();
+  await shot(page, 'siteadmin-email');
   await page.goto('/#/staff/accounts');
   await expect(page.getByText('Not allowed')).toBeVisible();
   await shot(page, 'siteadmin-refused', { full: false });

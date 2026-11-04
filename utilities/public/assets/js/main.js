@@ -50,6 +50,8 @@ const routes = [
   [/^\/admin\/settings$/, admin.settings],
   [/^\/admin\/city$/, admin.city],
   [/^\/admin\/database$/, admin.database],
+  [/^\/admin\/email$/, admin.email],
+  [/^\/admin\/stripe$/, admin.stripe],
   [/^\/admin\/people$/, admin.people],
   [/^\/admin\/rates$/, admin.rates],
   [/^\/admin\/printing$/, admin.printing],

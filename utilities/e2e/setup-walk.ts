@@ -1,10 +1,10 @@
 import { expect, Page } from '@playwright/test';
 
-/** Walks the first-run setup page: database, then the city. `shot` may save a picture at each step. */
+/** Walks the first-run setup page: database, the city, then skips email and online payments (both optional outside production). `shot` may save a picture at each step. */
 export async function walkSetup(page: Page, o: { base: string; ownerUrl: string; token: string; host: string; shot?: (name: string) => Promise<void> }) {
   await page.goto(o.base + '/setup');
   await expect(page.getByRole('heading', { level: 1, name: 'Set up utilities' })).toBeVisible();
-  await expect(page.getByRole('heading', { level: 2, name: 'Step 1 of 2: the database' })).toBeVisible();
+  await expect(page.getByRole('heading', { level: 2, name: 'Step 1 of 4: the database' })).toBeVisible();
   await page.getByLabel('Connection address', { exact: true }).fill(o.ownerUrl);
   await page.getByLabel('Setup code').fill('wrong');
   await page.getByRole('button', { name: 'Test the connection' }).click();
@@ -14,7 +14,7 @@ export async function walkSetup(page: Page, o: { base: string; ownerUrl: string;
   await expect(page.getByText(/Connected to PostgreSQL/)).toBeVisible();
   if (o.shot) await o.shot('setup-database');
   await page.getByRole('button', { name: 'Create the tables and continue' }).click();
-  await expect(page.getByRole('heading', { level: 2, name: 'Step 2 of 2: the city' })).toBeVisible();
+  await expect(page.getByRole('heading', { level: 2, name: 'Step 2 of 4: the city' })).toBeVisible();
   await page.getByLabel('City name').fill('Village of Sample');
   await page.getByLabel('State').fill('KS');
   await page.getByLabel('Web address').fill(o.host);
@@ -25,7 +25,23 @@ export async function walkSetup(page: Page, o: { base: string; ownerUrl: string;
   await page.getByLabel('Full name').fill('Pat Admin');
   await page.getByLabel('Email address', { exact: true }).fill('admin@sample.test');
   if (o.shot) await o.shot('setup-city');
-  await page.getByRole('button', { name: 'Create the city and finish' }).click();
+  await page.getByRole('button', { name: 'Create the city and continue' }).click();
+  await expect(page.getByRole('heading', { level: 2, name: 'Step 3 of 4: email' })).toBeVisible();
+  // a wrong service setting is explained, not saved
+  await page.getByLabel('Email service').selectOption('resend');
+  await page.getByLabel('Send mail as').fill('utilities@sample.test');
+  await page.getByRole('button', { name: 'Save and continue' }).click();
+  await expect(page.getByRole('alert')).toContainText('API key is needed');
+  await page.getByLabel('API key').fill('re_sample_key_for_the_picture');
+  if (o.shot) await o.shot('setup-email');
+  await page.getByRole('button', { name: 'Skip for now' }).click();
+  await expect(page.getByRole('heading', { level: 2, name: 'Step 4 of 4: online payments' })).toBeVisible();
+  await page.getByLabel('Publishable key').fill('pk_test_51SampleKeyForThePicture');
+  await page.getByLabel('Secret key').fill(['sk', 'live', '51SampleKeyForThePicture'].join('_'));
+  await page.getByRole('button', { name: 'Connect Stripe and finish' }).click();
+  await expect(page.getByRole('alert')).toContainText('both be test keys or both be live');
+  if (o.shot) await o.shot('setup-payments');
+  await page.getByRole('button', { name: 'Skip for now' }).click();
   await expect(page.getByRole('heading', { level: 1, name: 'All set' })).toBeVisible();
   if (o.shot) await o.shot('setup-done');
   // The real program takes over the same port.

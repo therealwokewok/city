@@ -254,3 +254,50 @@ export class FakePaymentsAdapter implements PaymentsAdapter {
     return { eventId: e.id, type: e.type, providerRef: e.ref, accountId: e.account_id, setupRef: e.setup_ref, paymentId: e.payment_id, amountCents: e.amount, method: e.method ?? 'card' };
   }
 }
+
+// ---------- connecting a Stripe account from the screens ----------
+export interface StripeCheck { ok: boolean; problem?: string; business?: string; live?: boolean; charges_enabled?: boolean; country?: string }
+/** Looks the secret key up with Stripe: whose account it is, test or live, and whether it can take payments yet. */
+export async function checkStripeKey(secretKey: string, fetchImpl: typeof fetch = fetch): Promise<StripeCheck> {
+  if (!/^(sk|rk)_(test|live)_[A-Za-z0-9]{10,}$/.test(secretKey)) return { ok: false, problem: 'The secret key starts with sk_test_, sk_live_ or rk_' };
+  const res = await fetchImpl('https://api.stripe.com/v1/account', { headers: { authorization: `Bearer ${secretKey}` }, signal: AbortSignal.timeout(10_000) });
+  const j: any = await res.json().catch(() => ({}));
+  if (!res.ok) return { ok: false, problem: j?.error?.message ?? `Stripe returned ${res.status}` };
+  return { ok: true, business: j.settings?.dashboard?.display_name || j.business_profile?.name || j.email || j.id, live: !/^(sk|rk)_test_/.test(secretKey), charges_enabled: !!j.charges_enabled, country: j.country };
+}
+/**
+ * Makes the webhook Stripe needs to tell us about payments, pointed at this site, and returns its signing secret
+ * (Stripe shows that only when the endpoint is created). Any older endpoint we made for the same address is removed.
+ */
+export async function ensureStripeWebhook(secretKey: string, url: string, fetchImpl: typeof fetch = fetch): Promise<{ id: string; secret: string }> {
+  const H = { authorization: `Bearer ${secretKey}` };
+  const list = await fetchImpl('https://api.stripe.com/v1/webhook_endpoints?limit=100', { headers: H, signal: AbortSignal.timeout(10_000) });
+  const lj: any = await list.json().catch(() => ({}));
+  if (!list.ok) throw new Error(lj?.error?.message ?? `Stripe returned ${list.status}`);
+  for (const w of lj.data ?? []) {
+    if (w.url === url) await fetchImpl(`https://api.stripe.com/v1/webhook_endpoints/${w.id}`, { method: 'DELETE', headers: H, signal: AbortSignal.timeout(10_000) }).catch(() => {});
+  }
+  const body = new URLSearchParams({ url, description: 'utilities: payment results', 'enabled_events[0]': 'payment_intent.succeeded', 'enabled_events[1]': 'payment_intent.payment_failed',
+    'enabled_events[2]': 'payment_intent.canceled', 'enabled_events[3]': 'setup_intent.succeeded' });
+  const res = await fetchImpl('https://api.stripe.com/v1/webhook_endpoints', { method: 'POST', headers: { ...H, 'content-type': 'application/x-www-form-urlencoded' }, body, signal: AbortSignal.timeout(10_000) });
+  const j: any = await res.json().catch(() => ({}));
+  if (!res.ok || !j.secret) throw new Error(j?.error?.message ?? `Stripe would not create the webhook (${res.status})`);
+  return { id: j.id, secret: j.secret };
+}
+
+/**
+ * A payments adapter that can be replaced while the program runs (the administration screen's "Save").
+ * Optional abilities (inspectToken, registerDomain, ...) show up or vanish with the adapter underneath.
+ */
+export function switchablePayments(initial: PaymentsAdapter): PaymentsAdapter & { set(next: PaymentsAdapter): void; inner(): PaymentsAdapter } {
+  let current = initial;
+  return new Proxy({} as any, {
+    get(_t, k) {
+      if (k === 'set') return (next: PaymentsAdapter) => { current = next; };
+      if (k === 'inner') return () => current;
+      const v = (current as any)[k];
+      return typeof v === 'function' ? v.bind(current) : v;
+    },
+    has(_t, k) { return k === 'set' || k === 'inner' || k in current; },
+  });
+}

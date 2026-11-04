@@ -23,7 +23,7 @@ const servers = projects.map((p, i) => {
   p.use = { ...p.use, baseURL: `http://localhost:${port}` };
   return {
     command: 'npx tsx e2e/server.ts', url: `http://127.0.0.1:${port}/healthz`, timeout: 60_000, reuseExistingServer: false,
-    env: { PORT: String(port), E2E_DB: i === 0 ? 'utilities_e2e' : `utilities_e2e_${i}` },
+    env: { PORT: String(port), E2E_DB: i === 0 ? 'utilities_e2e' : `utilities_e2e_${i}`, CONFIG_DIR: `.ui-audit/app-${i}` },
   };
 });
 

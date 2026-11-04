@@ -1,6 +1,6 @@
 import { h, field, money, plainDate, showError, busy, confirmDialog, announce, todayIso, fill } from '../dom.js';
 import { api, has, state } from '../api.js';
-import { dbFields, testReport, PROVIDERS } from '../setup.js';
+import { dbFields, testReport, PROVIDERS, emailFields, dnsTable, stripeFields, stripeCheckReport } from '../setup.js';
 
 const safe = (fn, title = 'Settings') => async (...a) => {
   try { return await fn(...a); } catch (e) { return h('div', {}, h('h1', {}, title), h('p', { class: 'error', role: 'alert' }, e.message)); }
@@ -25,6 +25,8 @@ export const hub = safe(async () => {
   if (has('city_admin', 'site_admin')) cards.push(card('Colors, logo and demo mode', 'Match the city website: colors and logo on every page, and the demo notice on or off.', '#/admin/appearance'));
   if (has('city_admin', 'site_admin')) cards.push(card('Updates', 'See if a newer version of this program is ready, and choose where updates come from.', '#/admin/updates'));
   if (has('site_admin')) cards.push(card('Database', 'Where the records are kept: the connection, encryption and a test button.', '#/admin/database'));
+  if (has('site_admin')) cards.push(card('Email', 'Which service sends the codes, bills and notices, the address they come from, and a test button.', '#/admin/email'));
+  if (has('city_admin')) cards.push(card('Online payments (Stripe)', 'Connect the city\'s own Stripe account so residents can pay by card, bank, Apple Pay or Google Pay.', '#/admin/stripe'));
   if (has('city_admin', 'billing_clerk')) cards.push(card('Services and rates', 'Turn water, sewer, trash and electric on or off, and set what each one costs.', '#/admin/rates'));
   if (has('city_admin', 'billing_clerk')) cards.push(card('Printing', 'Set the paper and envelope sizes you own and where each item prints.', '#/admin/printing'));
   if (has('city_admin', 'auditor')) cards.push(card('Activity log', 'See who did what, and check that the record has not been changed.', '#/admin/audit'));
@@ -514,7 +516,7 @@ const ACTION = {
   'approval.reject': 'Turned down a bill change', 'charge.create': 'Added a one-time charge', 'dispute.open': 'A resident asked about a bill',
   'dispute.resolve': 'Answered a bill question', 'ledger.reverse': 'Reversed a ledger entry', 'meter.create': 'Added a meter',
   'penalty.run': 'Added late charges', 'account.create': 'Added a customer account', 'account.linkcode.regen': 'Made a new link code',
-  'account.service': 'Changed a customer service', 'request.create': 'A resident made a service request', 'request.update': 'Updated a service request', 'auth.login': 'Signed in', 'auth.stepup': 'Passed a safety check', 'city.bootstrap': 'City was set up', 'payments.wallets': 'Turned on Apple Pay for the web address', 'city.update': 'Changed the city name, time zone or web addresses', 'database.update': 'Changed the database connection',
+  'account.service': 'Changed a customer service', 'request.create': 'A resident made a service request', 'request.update': 'Updated a service request', 'auth.login': 'Signed in', 'auth.stepup': 'Passed a safety check', 'city.bootstrap': 'City was set up', 'payments.wallets': 'Turned on Apple Pay for the web address', 'city.update': 'Changed the city name, time zone or web addresses', 'database.update': 'Changed the database connection', 'email.update': 'Changed the email service', 'stripe.update': 'Changed the Stripe connection',
 };
 const humanAction = (a) => ACTION[a] || a.replace(/[._]/g, ' ').replace(/^./, (c) => c.toUpperCase());
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -698,3 +700,82 @@ export const database = safe(async () => {
     change,
     h('section', { class: 'card' }, h('h2', {}, 'Backups'), h('p', {}, 'The ready-made compose file takes a nightly backup and keeps 30 days. Copy backups off this computer, and practise restoring one. See docs/updates.md.')));
 }, 'Database');
+
+// =============== email (site administrator) ===============
+export const email = safe(async () => {
+  const d = await api('GET', '/api/staff/email');
+  const msg = h('div', { role: 'status' });
+  const names = { resend: 'Resend', postmark: 'Postmark', sendgrid: 'SendGrid', mailgun: 'Mailgun', ses: 'Amazon SES', relay: 'a relay of your own', console: 'the console (nothing is sent)', memory: 'memory (tests)' };
+  const facts = h('dl', { class: 'facts' },
+    h('dt', {}, 'Set by'), h('dd', {}, d.source === 'env' ? 'the host, through EMAIL_API_URL' : d.source === 'file' ? 'the setup page or this screen' : 'nothing yet: codes are printed where the program runs, so nobody can sign in from outside'),
+    h('dt', {}, 'Service'), h('dd', {}, names[d.provider] || names[d.running] || d.provider || d.running || 'none'),
+    h('dt', {}, 'Mail comes from'), h('dd', {}, d.from || 'not set'),
+    d.url ? h('dt', {}, 'Relay') : null, d.url ? h('dd', {}, d.url) : null);
+  const report = h('div', { 'aria-live': 'polite' });
+  const ef = emailFields({ provider: d.provider, from: d.from, url: d.url, domain: d.domain, region: d.region, has_key: d.has_key });
+  const form = h('form', { novalidate: true, class: 'card' },
+    h('h2', {}, d.source === 'none' ? 'Set up email' : 'Change the email service'),
+    ef.root,
+    h('div', { class: 'actions row' },
+      h('button', { class: 'btn secondary', type: 'button', id: 'dns' }, 'Show the DNS records the domain needs'),
+      h('button', { class: 'btn secondary', type: 'button', id: 'test' }, 'Send me a test message')),
+    h('p', { class: 'hint' }, `The test goes to ${state.me.email}, using what is typed above, before anything is saved.`),
+    h('div', { id: 'dnsout' }),
+    h('div', { class: 'actions row' }, h('button', { class: 'btn', type: 'submit' }, 'Save and use this from now on')),
+    report);
+  form.querySelector('#dns').addEventListener('click', async (e) => {
+    try { fill(form.querySelector('#dnsout'), dnsTable(await busy(e.target, 'Asking...', () => api('POST', '/api/staff/email/domain', { email: ef.read() })))); }
+    catch (err) { fill(form.querySelector('#dnsout'), h('p', { class: 'error', role: 'alert' }, err.message)); }
+  });
+  form.querySelector('#test').addEventListener('click', async (e) => {
+    try { const r = await busy(e.target, 'Sending...', () => api('POST', '/api/staff/email/test', { email: ef.read() })); fill(report, h('p', { class: 'notice' }, `✓ Sent to ${r.to}. Check that inbox (and its spam folder).`)); }
+    catch (err) { fill(report, h('p', { class: 'error', role: 'alert' }, err.message)); }
+  });
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    try { await busy(form.querySelector('button[type=submit]'), 'Saving...', () => api('PUT', '/api/staff/email', { email: ef.read() })); say(msg, 'Saved. Mail now goes through this service.'); }
+    catch (err) { showError(form, err.message); }
+  });
+  return h('div', {}, back(), h('h1', {}, 'Email'), msg,
+    h('section', { class: 'card' }, h('h2', {}, 'How mail is sent now'), facts, d.editable ? null : h('p', { class: 'hint' }, 'To change this, change EMAIL_API_URL, EMAIL_API_TOKEN and EMAIL_FROM where the program is started.')),
+    d.editable ? form : null,
+    h('section', { class: 'card' }, h('h2', {}, 'What gets sent'), h('p', {}, 'Sign-in codes and safety-check codes, bills for paperless customers, payment plan decisions, failed autopay notices, and role changes to the other administrators. Nothing else; there is no marketing and no tracking.')));
+}, 'Email');
+
+// =============== online payments (city administrator) ===============
+export const stripe = safe(async () => {
+  const d = await api('GET', '/api/staff/payments/stripe');
+  const msg = h('div', { role: 'status' });
+  const facts = h('dl', { class: 'facts' },
+    h('dt', {}, 'Status'), h('dd', {}, d.running === 'stripe' ? `Connected, ${d.live ? 'LIVE keys: real money moves' : 'test keys: no real money'}` : 'Not connected. Residents cannot pay online; the pay page uses a pretend processor in demo mode.'),
+    h('dt', {}, 'Set by'), h('dd', {}, d.source === 'env' ? 'the host, through STRIPE_SECRET_KEY' : d.source === 'file' ? 'this screen or the setup page' : 'nothing yet'),
+    d.publishable_key ? h('dt', {}, 'Publishable key') : null, d.publishable_key ? h('dd', {}, d.publishable_key) : null,
+    d.webhook_id ? h('dt', {}, 'Webhook') : null, d.webhook_id ? h('dd', {}, `${d.webhook_id}, sending payment results to https://${d.site}/webhooks/payments`) : null);
+  const sf = stripeFields({ publishable_key: d.publishable_key });
+  const report = h('div', { 'aria-live': 'polite' });
+  const form = h('form', { novalidate: true, class: 'card' },
+    h('h2', {}, d.running === 'stripe' ? 'Change the keys' : 'Connect the city\'s Stripe account'),
+    h('p', {}, 'The city opens its own account at stripe.com (free; Stripe keeps a small part of each payment, which City settings can pass on to the customer as a fee). Copy the two keys from Developers, API keys. Everything else, including the webhook Stripe uses to report payments, is set up for you when you press Connect.'),
+    h('p', { class: 'hint' }, 'Start with test keys. When the city is ready for real money, paste the live keys here and turn demo mode off under Colors, logo and demo mode.'),
+    sf.root,
+    h('div', { class: 'actions row' }, h('button', { class: 'btn secondary', type: 'button', id: 'chk' }, 'Check the keys'), h('button', { class: 'btn', type: 'submit' }, 'Connect'),
+      d.running === 'stripe' && d.editable ? h('button', { class: 'btn secondary', type: 'button', id: 'off' }, 'Disconnect Stripe') : null),
+    report);
+  form.querySelector('#chk').addEventListener('click', async (e) => {
+    try { fill(report, stripeCheckReport(await busy(e.target, 'Checking...', () => api('POST', '/api/staff/payments/stripe/check', { secret_key: sf.read().secret_key })))); }
+    catch (err) { fill(report, h('p', { class: 'error', role: 'alert' }, err.message)); }
+  });
+  form.querySelector('#off')?.addEventListener('click', async (e) => {
+    if (!(await confirmDialog({ title: 'Disconnect Stripe?', body: 'Residents will not be able to pay online until it is connected again. Payments already made are not affected.', yes: 'Yes, disconnect', no: 'No' }))) return;
+    try { await busy(e.target, 'Disconnecting...', () => api('DELETE', '/api/staff/payments/stripe')); say(msg, 'Disconnected.'); setTimeout(() => location.reload(), 800); } catch (err) { showError(form, err.message); }
+  });
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    try { const r = await busy(form.querySelector('button[type=submit]'), 'Connecting...', () => api('PUT', '/api/staff/payments/stripe', sf.read())); say(msg, `Connected with ${r.mode} keys. Webhook ${r.webhook_id} is set up. Residents can pay online now.`); setTimeout(() => location.reload(), 1500); }
+    catch (err) { showError(form, err.message); }
+  });
+  return h('div', {}, back(), h('h1', {}, 'Online payments (Stripe)'), msg,
+    h('section', { class: 'card' }, h('h2', {}, 'Status'), facts, d.editable ? null : h('p', { class: 'hint' }, 'To change this, change STRIPE_SECRET_KEY, STRIPE_PUBLISHABLE_KEY and STRIPE_WEBHOOK_SECRET where the program is started.')),
+    d.editable ? form : null,
+    h('p', {}, 'Fees passed on to customers, and Apple Pay, are under ', h('a', { href: '#/admin/settings' }, 'City settings'), '.'));
+}, 'Online payments');

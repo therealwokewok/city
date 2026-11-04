@@ -119,7 +119,7 @@ main.wide { max-width: var(--maxw-wide); }
 .field { margin: 0 0 1.25rem; }
 label, .label { display: block; font-weight: 700; margin-bottom: .25rem; }
 .hint { color: var(--muted); font-size: 1rem; margin: 0 0 .5rem; }
-input[type="text"], input[type="email"], input[type="tel"], input[type="number"], input[type="search"], input[type="date"], select, textarea {
+input[type="text"], input[type="password"], input[type="email"], input[type="tel"], input[type="number"], input[type="search"], input[type="date"], select, textarea {
   width: 100%; min-height: var(--tap); padding: .5rem .75rem; font: inherit; color: var(--text); background: var(--card);
   border: 3px solid var(--line); border-radius: 6px;
 }

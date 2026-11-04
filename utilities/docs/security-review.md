@@ -59,6 +59,12 @@ with a test that failed, then fixed, and the test now passes and stays in the su
 - The demo sends every sign-in code to one inbox, so that inbox is the demo's master key. Never put real customer
   data on a demo.
 - Backups land on the same computer. Copy them elsewhere, and practise a restore.
+- The email key and the Stripe keys a city pastes on the setup page or the screens live in `config/services.json`,
+  readable by the program only (mode 600). The screens show which service and which account, never a key; the
+  activity log records that a change happened, with the mode or from-address, never a key. Setting the keys as
+  environment variables instead locks the screens to read-only. Live Stripe keys are refused while the city is in
+  demo mode, and the setup page refuses to make a webhook for `localhost`. A site administrator can change where
+  mail goes (every sign-in code passes through it), so that role stays with the person who runs the server.
 
 ## Confirmed sound
 

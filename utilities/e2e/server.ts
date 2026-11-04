@@ -1,3 +1,4 @@
+import fs from 'node:fs';
 // Starts a throwaway copy of the app with demo data for the browser tests.
 // Not part of the product: it adds a test-only route that reveals sign-in codes, so it must never be deployed.
 import crypto from 'node:crypto';
@@ -79,9 +80,10 @@ await tx(ctx('approver'), (c) => approveRun(c, users.approver.id, runId));
 await tx(ctx('reader'), (c) => submitReading(c, users.reader.id, { meter_id: w1, value: 6100, read_at: '2026-11-02T08:00:00-06:00', client_id: 'seed-pending-w1' }));
 await db.query(`insert into print_profiles (city_id, kind, name, config) values ($1, 'bill', 'Letter sheet', $2)`, [cityId, JSON.stringify({ units: 'in', page: { width: 8.5, height: 11 }, fields: [{ source: 'city.name', x: 0.5, y: 0.5, size: 14 }, { source: 'bill.lines', x: 0.5, y: 2, width: 7.5, size: 10 }] })]);
 
+if (process.env.CONFIG_DIR) fs.rmSync(process.env.CONFIG_DIR, { recursive: true, force: true });
 const mail = new MemoryEmail();
 const pay = new FakePaymentsAdapter();
-const app = await buildApp({ quiet: true, email: mail, payments: pay, signInLimitScale: 50 });
+const app = await buildApp({ quiet: true, email: mail, payments: pay, signInLimitScale: 50, servicesSource: { email: 'none', stripe: 'none' } });
 // Test-only helpers (never in the real server)
 app.get('/__test/code', async (req) => ({ code: mail.lastCode(String((req.query as any).email)) }));
 app.post('/__test/reset-codes', async (req) => { await db.query('delete from login_codes where email = $1', [String((req.body as any).email).toLowerCase()]); return { ok: true }; });

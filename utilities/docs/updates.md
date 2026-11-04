@@ -57,6 +57,15 @@ Two ways, and the host's choice wins:
 Either way the program refuses to serve as the owner in production; the web process only ever holds the limited
 `utilities_app` role.
 
+Email and Stripe follow the same pattern. From the host: `EMAIL_API_URL`, `EMAIL_API_TOKEN` and `EMAIL_FROM` (a
+relay), and `STRIPE_PUBLISHABLE_KEY`, `STRIPE_SECRET_KEY` and `STRIPE_WEBHOOK_SECRET` (all three or none). From the
+setup page or the screens (Administration, Email for a site administrator; Administration, Online payments for a
+city administrator): `CONFIG_DIR/services.json`, mode 600, holding the email service and its key, and the Stripe
+keys with the webhook secret the program obtained when it made the webhook. Changes from the screens take effect
+without a restart. In production the program will not start without a way to send email, since nobody could sign
+in; in a demo (`ALLOW_DEMO_ADAPTERS=1`) codes are printed to the log instead. Back up the `config` folder with the
+database: without `services.json` the city would have to paste its keys again.
+
 Where the database can live: any PostgreSQL 16 or newer. The setup page has presets for Amazon RDS and Aurora
 (verified with Amazon's bundle, kept as `CONFIG_DIR/aws-rds-global-bundle.pem` and refreshed every 90 days), Google
 Cloud SQL (the Auth Proxy on the same server, or "verified certificate only" with the instance CA), Azure (verified

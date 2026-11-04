@@ -24,7 +24,7 @@ export const ROLE_PERMS: Record<Role, string[]> = {
 
 /** Actions that need a recent re-confirmation by email code, even inside a live session. */
 export const STEP_UP_ACTIONS = ['roles.grant', 'settings.update', 'run.approve', 'approval.decide', 'linkcode.regen',
-  'rates.create', 'services.toggle', 'user.deactivate', 'arrangement.decide', 'ledger.reverse', 'city.update', 'database.update'] as const;
+  'rates.create', 'services.toggle', 'user.deactivate', 'arrangement.decide', 'ledger.reverse', 'city.update', 'database.update', 'email.update', 'stripe.update'] as const;
 
 export function permsFor(roles: string[]): string[] {
   const s = new Set<string>();
