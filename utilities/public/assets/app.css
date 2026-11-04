@@ -254,8 +254,8 @@ main.wide ~ .foot { padding-left: max(1rem, calc((100% - var(--maxw-wide)) / 2 +
 .card h3 { margin-top: 1.25rem; }
 @media (max-width: 51.99rem) {
   /* Phones: the menu wraps into even rows instead of scrolling sideways, and the demo notice stays small and scrolls away. */
-  #tabs { display: grid; grid-template-columns: repeat(auto-fit, minmax(6.25rem, 1fr)); overflow: visible; }
-  #tabs a { min-width: 0; min-height: 3rem; font-size: .95rem; padding: .4rem .25rem; }
+  #tabs { display: flex; flex-wrap: wrap; overflow: visible; }
+  #tabs a { flex: 1 1 auto; min-width: 0; min-height: 3rem; font-size: .95rem; padding: .4rem .6rem; white-space: nowrap; }
   main { padding-bottom: 9rem; }
   .demo-bar { position: static; font-size: 1rem; padding: .4rem .75rem; }
   .textsize button { min-width: 2.75rem; }

@@ -6,16 +6,18 @@ import { safetyCheck, signIn } from '../../e2e/helpers';
 test.describe.configure({ mode: 'serial' });
 test.setTimeout(120_000);
 
+const DIR = process.env.SHOT_DIR || 'docs/screens';
 const shot = async (page: Page, name: string, opts: { full?: boolean; el?: string } = {}) => {
+  await page.evaluate(() => window.scrollTo(0, 0));
   await page.waitForTimeout(250);
   if (opts.el) {
     // the demo bar is fixed to the top of the window and would sit across a close-up
     await page.evaluate(() => { document.getElementById('demo')!.style.visibility = 'hidden'; });
-    await page.locator(opts.el).screenshot({ path: `docs/screens/${name}.png` });
+    await page.locator(opts.el).screenshot({ path: `${DIR}/${name}.png` });
     await page.evaluate(() => { document.getElementById('demo')!.style.visibility = ''; });
     return;
   }
-  await page.screenshot({ path: `docs/screens/${name}.png`, fullPage: opts.full !== false });
+  await page.screenshot({ path: `${DIR}/${name}.png`, fullPage: opts.full !== false });
 };
 const signOut = async (page: Page) => { await page.locator('#signout').click(); await expect(page.getByRole('heading', { level: 1, name: 'Sign in' })).toBeVisible(); };
 const RES = 'pat@example.com';
@@ -72,7 +74,6 @@ test('resident', async ({ page }) => {
   await shot(page, 'res-pay-partial');
   await page.getByRole('button', { name: 'Continue' }).click();
   await expect(page.getByRole('heading', { level: 1, name: 'Thank you' })).toBeVisible();
-  await shot(page, 'res-pay-thanks');
   // payment plan
   await page.goto('/#/');
   await page.getByRole('link', { name: 'See my bills and history' }).click();
@@ -357,7 +358,7 @@ test('city admin', async ({ page }) => {
   await shot(page, 'admin-printing');
   await page.getByRole('button', { name: 'Add a bill layout' }).click();
   await expect(page.getByRole('heading', { level: 2, name: 'New bill layout' })).toBeVisible();
-  await page.screenshot({ path: 'docs/screens/admin-layout-editor.png', clip: { x: 0, y: 0, width: 1000, height: 1500 }, fullPage: true });
+  await page.screenshot({ path: `${DIR}/admin-layout-editor.png`, clip: { x: 0, y: 0, width: 1000, height: 1500 }, fullPage: true });
   await page.goto('/#/admin/appearance');
   await expect(page.getByRole('heading', { level: 1, name: 'Colors, logo and demo mode' })).toBeVisible();
   await shot(page, 'admin-appearance');
@@ -408,6 +409,6 @@ test('auditor', async ({ page }) => {
   await expect(page.getByRole('heading', { level: 1, name: 'Activity log' })).toBeVisible();
   await page.getByRole('button', { name: 'Check that the record is untouched' }).click();
   await expect(page.getByText('The record is complete')).toBeVisible();
-  await page.screenshot({ path: 'docs/screens/auditor-audit.png', clip: { x: 0, y: 0, width: 1000, height: 1100 }, fullPage: true });
+  await page.screenshot({ path: `${DIR}/auditor-audit.png`, clip: { x: 0, y: 0, width: 1000, height: 1100 }, fullPage: true });
   await signOut(page);
 });
