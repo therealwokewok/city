@@ -28,7 +28,7 @@ test('admin: settings save needs the safety check and are remembered', async ({ 
   await page.getByRole('button', { name: 'Save settings' }).click();
   await expect(page.getByRole('alert')).toContainText('Days until a bill is due');
   await page.getByLabel('Days until a bill is due').fill('20');
-  await page.getByLabel('City Hall phone number').fill('(555) 010-9999');
+  await page.getByLabel('Office phone number').fill('(555) 010-9999');
   await page.getByLabel('Late charge (percent)').fill('7.5');
   await page.getByRole('button', { name: 'Save settings' }).click();
   await safetyCheck(page, 'admin@example.test');

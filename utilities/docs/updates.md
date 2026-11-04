@@ -41,6 +41,22 @@ docker compose -f docker-compose.auto-update.yml exec db pg_restore -U utilities
 docker compose -f docker-compose.auto-update.yml start app
 ```
 
+## Where the database connection lives
+
+Two ways, and the host's choice wins:
+
+- **From the host**: `DATABASE_URL` (and `OWNER_DATABASE_URL` for migrations), or the same names with `_FILE` pointing
+  at a secret file. The Database screen then shows the connection but cannot change it; change it where the program
+  is started. The compose files work this way.
+- **From the setup page**: `CONFIG_DIR/database.json`, written on first start and readable by the program only
+  (mode 600). It holds the app connection and the owner connection; at every start the program applies any new
+  table updates as the owner before serving. A site administrator can point it at another database under
+  Administration, Database: the new connection is tested first and must already hold the tables; it takes effect
+  at the next restart. Keep that folder in the backups, or in a mounted volume (`/app/config` in the image).
+
+Either way the program refuses to serve as the owner in production; the web process only ever holds the limited
+`utilities_app` role.
+
 ## Changing keys and passwords
 
 - **Stripe keys or webhook secret:** edit `.env`, then `docker compose ... up -d`. The program refuses to start when only some of the three Stripe values are set, or when the webhook secret is a placeholder, so a half-done rotation is caught at once. Lost webhook secret: make a new one on Stripe's webhook page and paste it in.

@@ -44,11 +44,22 @@ In development, sign-in codes print to the console and payments use a fake proce
 
 ## Install for a real city
 
-1. Create a database. Run `npm run migrate` as the owner account; run the app as `utilities_app`.
-2. `npm run bootstrap -- --name "City of Example" --state MO --host utilities.example.gov --admin clerk@example.gov`
-3. Put it behind HTTPS on its own subdomain (the app listens on this computer only; `deploy/Caddyfile` is an example proxy). Fill in `.env` (see `.env.example`). Use `docker-compose.auto-update.yml`, which also backs the database up every night, and copy the backups off the computer.
-4. Work through the handoff gate in [SECURITY.md](SECURITY.md).
-5. The city creates **its own** Stripe account and keeps the keys. No platform fee is added by this software.
+1. Start the program (the container, or `node dist/src/main.js`) with no `DATABASE_URL`. It prints a setup code and
+   serves a **setup page** at `/setup`. There you type the database owner's connection (one address, separate
+   fields, or a local socket, with TLS off, required or verified), press Test, and the program creates the tables
+   and a limited `utilities_app` role for itself. Then the city: name, state, time zone, web address, office name,
+   phone, hours, addresses, and the first administrator. The real site starts on the same port when you finish.
+   Prefer settings from the host instead? Set `DATABASE_URL` (or `DATABASE_URL_FILE`) and the setup page only
+   asks about the city. The ready-made `docker-compose.auto-update.yml` does that and bundles PostgreSQL.
+2. Put it behind HTTPS on its own subdomain (the app listens on this computer only; `deploy/Caddyfile` is an example proxy). Fill in `.env` (see `.env.example`). The compose file backs the database up every night; copy the backups off the computer.
+3. Work through the handoff gate in [SECURITY.md](SECURITY.md).
+4. The city creates **its own** Stripe account and keeps the keys. No platform fee is added by this software.
+
+Afterwards, a site administrator changes the database connection under Administration, Database (checked first,
+applied at restart), and a city or site administrator changes the name, state, time zone and web addresses under
+Administration, The city. Everything a resident reads, from the name of the office ("City Hall", "Village Hall")
+to the smallest online payment and the longest payment plan, is a setting. `npm run bootstrap` still works for
+scripted installs.
 
 ## How it is put together
 

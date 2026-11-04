@@ -8,8 +8,8 @@ export type Role = (typeof ROLES)[number];
  * meter_reader gets meters and readings only, never customer names or balances.
  */
 export const ROLE_PERMS: Record<Role, string[]> = {
-  site_admin: ['users.read', 'users.manage', 'settings.manage', 'services.toggle'],
-  city_admin: ['users.read', 'users.manage', 'settings.manage', 'settings.money', 'services.toggle', 'rates.manage', 'accounts.read',
+  site_admin: ['users.read', 'users.manage', 'settings.manage', 'services.toggle', 'city.manage', 'system.manage'],
+  city_admin: ['users.read', 'users.manage', 'settings.manage', 'settings.money', 'services.toggle', 'city.manage', 'rates.manage', 'accounts.read',
     'accounts.manage', 'meters.read', 'runs.read', 'approvals.read', 'audit.read', 'print.read', 'print.manage', 'requests.review'],
   billing_clerk: ['accounts.read', 'accounts.manage', 'meters.read', 'readings.review', 'runs.read', 'runs.manage',
     'adjustments.request', 'approvals.read', 'charges.create', 'disputes.review', 'requests.review', 'print.read', 'print.run'],
@@ -24,7 +24,7 @@ export const ROLE_PERMS: Record<Role, string[]> = {
 
 /** Actions that need a recent re-confirmation by email code, even inside a live session. */
 export const STEP_UP_ACTIONS = ['roles.grant', 'settings.update', 'run.approve', 'approval.decide', 'linkcode.regen',
-  'rates.create', 'services.toggle', 'user.deactivate', 'arrangement.decide', 'ledger.reverse'] as const;
+  'rates.create', 'services.toggle', 'user.deactivate', 'arrangement.decide', 'ledger.reverse', 'city.update', 'database.update'] as const;
 
 export function permsFor(roles: string[]): string[] {
   const s = new Set<string>();

@@ -5,8 +5,10 @@ import pg from 'pg';
 
 const dir = path.join(path.dirname(fileURLToPath(import.meta.url)), 'migrations');
 
-export async function migrate(databaseUrl: string, appPassword?: string) {
-  const c = new pg.Client({ connectionString: databaseUrl });
+export const migrationsDir = dir;
+
+export async function migrate(database: string | pg.ClientConfig, appPassword?: string) {
+  const c = new pg.Client(typeof database === 'string' ? { connectionString: database } : database);
   await c.connect();
   try {
     await c.query('create table if not exists schema_migrations (name text primary key, at timestamptz not null default now())');

@@ -3,13 +3,15 @@ import { fmt } from '../money.js';
 import { audit, elevate } from '../db.js';
 import { PaymentEvent } from '../adapters/payments.js';
 import { bad, notFound, requirePerm } from './accounts.js';
+import { loadSettings } from '../settings.js';
 
-const MAX_PAYMENT_CENTS = 1_000_000; // $10,000 per online payment
+const dollars = (c: number) => '$' + (c / 100).toLocaleString('en-US', { minimumFractionDigits: 2 });
 
 /** A resident starts a payment. RLS means they can only pay accounts linked to them. */
 export async function createPendingPayment(c: pg.PoolClient, actor: string, accountId: string, amountCents: number, provider: string) {
-  if (!Number.isInteger(amountCents) || amountCents < 100 || amountCents > MAX_PAYMENT_CENTS) {
-    throw bad('Payments must be between $1.00 and $10,000.00');
+  const s = await loadSettings(c);
+  if (!Number.isInteger(amountCents) || amountCents < s.pay_min_cents || amountCents > s.pay_max_cents) {
+    throw bad(`Payments must be between ${dollars(s.pay_min_cents)} and ${dollars(s.pay_max_cents)}`);
   }
   const a = await c.query('select id, account_number from accounts where id = $1 and status = $2', [accountId, 'active']);
   if (!a.rows[0]) throw notFound('Account not found');

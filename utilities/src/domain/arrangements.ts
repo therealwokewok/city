@@ -2,6 +2,7 @@ import type pg from 'pg';
 import { audit } from '../db.js';
 import { bad, forbid, notFound, requirePerm } from './accounts.js';
 import { balance } from './billing.js';
+import { loadSettings } from '../settings.js';
 
 /** Dates come back from the database as text or as Date depending on setup; this gives YYYY-MM-DD either way. */
 export const isoDate = (v: string | Date): string => (typeof v === 'string' ? v.slice(0, 10) : v.toISOString().slice(0, 10));
@@ -48,15 +49,17 @@ export async function planProgress(c: pg.PoolClient, a: { account_id: string; to
 
 const today = () => new Date().toISOString().slice(0, 10);
 /** The first payment must start soon, so a plan cannot shield an account from late charges and shutoff for years. */
-function checkFirstDue(d: string) {
+function checkFirstDue(d: string, months: number) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) throw bad('Enter the first payment date');
-  if (d < addMonths(today(), 0) || d > addMonths(today(), 3)) throw bad('The first payment must be due within the next 3 months');
+  if (d < addMonths(today(), 0) || d > addMonths(today(), months)) throw bad(`The first payment must be due within the next ${months} month${months === 1 ? '' : 's'}`);
 }
 
 export async function requestArrangement(c: pg.PoolClient, actor: string, r: {
   account_id: string; installments: number; reason: string; first_due?: string; by_staff: boolean;
 }) {
-  if (!Number.isInteger(r.installments) || r.installments < 2 || r.installments > 24) throw bad('Choose between 2 and 24 monthly payments');
+  const s = await loadSettings(c);
+  const most = r.by_staff ? 24 : s.plan_max_installments;
+  if (!Number.isInteger(r.installments) || r.installments < 2 || r.installments > most) throw bad(`Choose between 2 and ${most} monthly payments`);
   const reason = r.reason.trim();
   if (!reason) throw bad('Please say a little about why you need more time');
   const acct = (await c.query('select id from accounts where id = $1', [r.account_id])).rows[0];
@@ -64,7 +67,7 @@ export async function requestArrangement(c: pg.PoolClient, actor: string, r: {
   const owed = Number(await balance(c, r.account_id));
   if (owed < 100 * r.installments) throw bad(owed <= 0 ? 'Nothing is owed on this account right now.' : 'The amount owed is too small to split into that many payments.');
   const firstDue = r.first_due ?? addMonths(today(), 1);
-  checkFirstDue(firstDue);
+  checkFirstDue(firstDue, s.plan_first_due_months);
   try {
     const row = (await c.query(
       `insert into payment_arrangements (city_id, account_id, requested_by, by_staff, reason, total_cents, installments, first_due)
@@ -96,7 +99,7 @@ export async function decideArrangement(c: pg.PoolClient, actor: string, id: str
   const n = d.installments ?? a.installments;
   if (!Number.isInteger(n) || n < 2 || n > 24) throw bad('Choose between 2 and 24 monthly payments');
   const firstDue = d.first_due ?? isoDate(a.first_due);
-  if (d.first_due !== undefined) checkFirstDue(firstDue);
+  if (d.first_due !== undefined) checkFirstDue(firstDue, (await loadSettings(c)).plan_first_due_months);
   await c.query(
     `update payment_arrangements set status = 'approved', decided_by = $2, decided_at = now(), decision_note = $3, installments = $4, first_due = $5 where id = $1`,
     [id, actor, note, n, firstDue]);

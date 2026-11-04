@@ -17,6 +17,37 @@ Contents: [Everyone](#everyone-signing-in-and-getting-around) · [Resident](#res
 
 ---
 
+## First run: the setup page (whoever installs the program)
+
+Before there is a database or a city, the program answers every address with one page, **Set up utilities**, and
+prints an 8-digit setup code where it was started. Only someone who can read that console can use the page.
+
+1. **Step 1 of 2: the database.** Choose how to connect: "One connection address" (what Neon, Supabase, RDS,
+   Azure and most hosts hand out, starting with `postgres://`), "Host, port, name, user and password" typed
+   separately, or "PostgreSQL on this same computer" over its socket. Pick the encryption: as written in the
+   address, required, or verified with the provider's CA certificate (a box appears to paste it). Type the
+   database owner's connection; the program creates the tables and, with "Create the limited app user for me"
+   ticked, a `utilities_app` role with its own password that the website runs as. **Test the connection** answers
+   in plain words ("Connected to PostgreSQL 16.15 as utilities_owner. The connection is encrypted. The database is
+   empty; the tables will be created." or "The database "utilities" does not exist yet; it will be created for
+   you."), and names the problem when there is one ("The password was not accepted.", "A firewall may be blocking
+   this server."). **Create the tables and continue** writes `config/database.json`, readable by the program only.
+   If the host already set `DATABASE_URL`, this step is skipped.
+2. **Step 2 of 2: the city.** City name, state (Missouri starting values are filled in when the state is MO), time
+   zone, the web address people will type, what residents call the office, phone, office hours, the mailing and
+   remit-to addresses, the first administrator's name and email, an optional site administrator, and "Start in
+   demo mode (recommended)". **Create the city and finish**.
+3. **All set**: the real program starts on the same port within a few seconds, and the administrator signs in with
+   an emailed code at the address given. Next steps: set the rates, then add accounts.
+
+![Step 1: the database](screens/setup-database.png)
+
+![Step 2: the city](screens/setup-city.png)
+
+![All set](screens/setup-done.png)
+
+---
+
 ## Everyone: signing in and getting around
 
 ### The sign-in page
@@ -696,7 +727,7 @@ Staff home shows the approvals, plans, requests and orders counts (view only), "
 customer" and "People, settings, rates and printing". The administrator can look at any account, change services
 and meters, make link codes and set up payment plans, but cannot take money, approve, or run billing.
 
-**Administration** is a set of cards: People and roles, City settings, Colors, logo and demo mode, Updates,
+**Administration** is a set of cards: People and roles, The city and its web addresses, City settings, Colors, logo and demo mode, Updates,
 Services and rates, Printing, Activity log.
 
 ![Staff home for a city administrator](screens/admin-home.png)
@@ -725,12 +756,27 @@ Services and rates, Printing, Activity log.
 ![People and roles](screens/admin-people.png)
 
 
+### The city and its web addresses
+- **The city and its web addresses** (city and site administrators): "City name" (shown at the top of every page,
+  on bills and in emails), "State", "Time zone" (Eastern, Central, Mountain, Arizona, Pacific, Alaska, Hawaii and the
+  Indiana, Michigan, Kentucky, Idaho and Puerto Rico variants; it decides what "today" means for due dates and
+  late charges), and "Web addresses this site answers to", one per line, with the hint "You are using
+  utilities.example.gov right now; keep it in the list." Saving asks for the safety check. Removing the address in
+  use is refused ("Keep ... in the list: it is the address you are using right now"), and so is an address another
+  city on the same server already uses. The page reminds that a new address also needs DNS and a certificate.
+
+![The city and its web addresses](screens/admin-city.png)
+
 ### City settings
-- One form: City Hall phone number, Office hours ("Shown at the bottom of every page"), City return address
+- One form: What residents call the office ("Used in messages such as 'Call City Hall'. City Hall, Village Hall,
+  Town Hall or Utility Office"), The word under the city name at the top of every page (usually Utilities), Office
+  phone number, Office hours ("Shown at the bottom of every page"), City return address
   ("Printed on bills and envelopes"), Where to mail payments, Days until a bill is due, Late charge (percent),
   Days after the due date before a shutoff can be listed, Extra approval above this amount (dollars) ("Above this,
   one-time charges need an approver, and bill changes need two different approvers"), Sales tax (percent), Flag a
-  meter reading that uses this many times the last use, Minutes a safety check stays good (1 to 30).
+  meter reading that uses this many times the last use, Minutes a safety check stays good (1 to 30), Smallest and
+  largest online payment (dollars), Most monthly payments a resident may ask for in a payment plan (2 to 24; staff
+  can always set up to 24), and how many months ahead a plan must start (1 to 12).
 - **Fees for paying online**: a plain explanation, a yellow warning about card-company rules (credit-only fees up to
   3%, Visa notice, the Service Fee Program for all-card fees, "Please check with Stripe and the city attorney
   first"), then No card fee / Fee on credit cards only / Fee on all cards; Stripe's percentage and per-payment
@@ -826,8 +872,18 @@ Services and rates, Printing, Activity log.
 
 **Tabs:** Staff home, Administration.
 
-- Staff home has one card, "People, settings, rates and printing". Administration shows People and roles, City
-  settings, Colors, logo and demo mode, and Updates.
+- Staff home has one card, "People, settings, rates and printing". Administration shows People and roles, The city
+  and its web addresses, City settings, Colors, logo and demo mode, Updates, and Database.
+- **Database**: "Where the records are" lists how the connection is set (by the host through `DATABASE_URL`, or by
+  the setup page and its file), how it connects, where, the database and app user, the encryption, whether an owner
+  connection for table updates is set, and the pool size; never a password. **Test the current connection** answers
+  in plain words. When the connection came from the setup page, **Change the connection** opens the same form the
+  setup page used (address, fields or socket; TLS; pool size); **Test these settings**, then **Save (takes effect at
+  restart)**, which asks for the safety check, refuses a database that does not already hold the tables, and
+  records the change in the activity log. When the host set `DATABASE_URL`, the page says to change it there.
+- **The city and its web addresses** works as for the city administrator above.
+
+![Database](screens/siteadmin-database.png)
 - Names the first city administrator when a city is set up (the only role a site administrator can give). After
   that, only a city administrator adds, removes or turns off a city administrator.
 - Can change the non-money settings (phone, hours, addresses, high-use flag, safety-check minutes), colors, logo,
@@ -961,6 +1017,15 @@ Use the test users `role_1@…` and `role_2@…`. Expected result in brackets.
 
 **Site administrator**
 - [ ] Any account page [refused]; money setting [refused]; non-money setting [saved].
+- [ ] Database page shows no password; test says connected; with a host-set connection, Save [refused with
+      "DATABASE_URL"].
+- [ ] The city page: add a second web address [saved, lower-cased]; remove the current one [refused]; an address
+      another city uses [refused].
+
+**First run (on a scratch server)**
+- [ ] Start with no DATABASE_URL: setup page appears; wrong setup code [refused]; Test names a missing database as
+      creatable; Create the tables; create the city; the site starts and the footer says "Call Village Hall".
+- [ ] Restart: no setup page, straight to the site.
 
 **Auditor**
 - [ ] Activity log opens and the check says intact. Any write [refused].

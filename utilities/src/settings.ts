@@ -26,11 +26,18 @@ export interface CitySettings {
   ach_fee: boolean;
   ach_fee_bps: number;            // 80 = 0.8%
   ach_fee_max_cents: number;      // 500 = $5.00; 0 = no cap
+  office_name: string;            // what residents call the office: "City Hall", "Village Hall", "the Utility Office"
+  brand_sub: string;              // the word under the city name in the top bar: "Utilities", "Water Department"
+  pay_min_cents: number;          // smallest online payment
+  pay_max_cents: number;          // largest online payment
+  plan_max_installments: number;  // most monthly payments a resident may ask for (staff may set up to 24)
+  plan_first_due_months: number;  // a plan's first payment must be due within this many months
 }
 
 /** Settings that change what customers are charged or how money is approved. Only a city administrator may change them. */
 export const MONEY_SETTINGS = ['penalty_bps', 'due_days', 'shutoff_notice_days', 'approval_limit_cents', 'tax_bps',
-  'card_fee', 'card_fee_bps', 'card_fee_fixed_cents', 'card_fee_max_bps', 'ach_fee', 'ach_fee_bps', 'ach_fee_max_cents'];
+  'card_fee', 'card_fee_bps', 'card_fee_fixed_cents', 'card_fee_max_bps', 'ach_fee', 'ach_fee_bps', 'ach_fee_max_cents',
+  'pay_min_cents', 'pay_max_cents', 'plan_max_installments', 'plan_first_due_months'];
 
 export const DEFAULT_UPDATE_REPO = 'https://github.com/therealwokewok/city';
 
@@ -49,7 +56,13 @@ export const DEFAULT_SETTINGS: CitySettings = {
   card_fee: 'off', card_fee_bps: 290, card_fee_fixed_cents: 30, card_fee_max_bps: 300,
   ach_fee: false, ach_fee_bps: 80, ach_fee_max_cents: 500,
   demo_mode: false, // new cities made by the bootstrap script start in demo mode; see bootstrap.ts
+  office_name: 'City Hall', brand_sub: 'Utilities', pay_min_cents: 100, pay_max_cents: 1_000_000, plan_max_installments: 12, plan_first_due_months: 3,
 };
+
+/** What residents call the office, for messages. Falls back to "the office" if the transaction is already failed. */
+export async function officeName(c: pg.PoolClient): Promise<string> {
+  try { return (await loadSettings(c)).office_name; } catch { return 'the office'; }
+}
 
 export async function loadSettings(c: pg.PoolClient): Promise<CitySettings> {
   const r = await c.query('select settings from cities where id = app_city()');
@@ -57,8 +70,9 @@ export async function loadSettings(c: pg.PoolClient): Promise<CitySettings> {
 }
 
 const NUMERIC_KEYS = ['penalty_bps', 'due_days', 'shutoff_notice_days', 'approval_limit_cents', 'tax_bps',
-  'high_usage_factor', 'stepup_minutes', 'card_fee_bps', 'card_fee_fixed_cents', 'card_fee_max_bps', 'ach_fee_bps', 'ach_fee_max_cents'];
-const TEXT_KEYS = ['remit_to', 'return_address', 'office_hours', 'phone'];
+  'high_usage_factor', 'stepup_minutes', 'card_fee_bps', 'card_fee_fixed_cents', 'card_fee_max_bps', 'ach_fee_bps', 'ach_fee_max_cents',
+  'pay_min_cents', 'pay_max_cents', 'plan_max_installments', 'plan_first_due_months'];
+const TEXT_KEYS = ['remit_to', 'return_address', 'office_hours', 'phone', 'office_name', 'brand_sub'];
 
 export function validateSettings(input: Record<string, unknown>): Partial<CitySettings> {
   const out: Record<string, unknown> = {};
@@ -99,6 +113,11 @@ export function validateSettings(input: Record<string, unknown>): Partial<CitySe
     } else throw new Error(`unknown setting ${k}`);
   }
   if (out.stepup_minutes !== undefined && ((out.stepup_minutes as number) < 1 || (out.stepup_minutes as number) > 30)) throw new Error('A safety check can last from 1 to 30 minutes');
+  for (const k of ['office_name', 'brand_sub']) if (typeof out[k] === 'string' && ((out[k] as string).trim() === '' || (out[k] as string).length > 60)) throw new Error(`${k === 'office_name' ? 'The office name' : 'The word under the city name'} needs 1 to 60 characters`);
+  if (out.pay_min_cents !== undefined && (out.pay_min_cents as number) < 50) throw new Error('The smallest online payment must be at least $0.50 (the processor minimum)');
+  if (out.pay_max_cents !== undefined && (out.pay_max_cents as number) < 100) throw new Error('The largest online payment must be at least $1.00');
+  if (out.plan_max_installments !== undefined && ((out.plan_max_installments as number) < 2 || (out.plan_max_installments as number) > 24)) throw new Error('Payment plans can run from 2 to 24 months');
+  if (out.plan_first_due_months !== undefined && ((out.plan_first_due_months as number) < 1 || (out.plan_first_due_months as number) > 12)) throw new Error('The first plan payment must be due within 1 to 12 months');
   for (const k of ['card_fee_bps', 'ach_fee_bps', 'card_fee_max_bps']) if (typeof out[k] === 'number' && (out[k] as number) > 2000) throw new Error('A fee percentage cannot be more than 20%');
   return out as Partial<CitySettings>;
 }

@@ -1,4 +1,5 @@
 import pg from 'pg';
+import { loadDbConfig, poolConfig, type DbConfig } from './config.js';
 
 export interface Ctx {
   cityId: string;
@@ -12,14 +13,19 @@ pg.types.setTypeParser(20, (v) => Number(v));
 pg.types.setTypeParser(1700, (v) => parseFloat(v));
 
 let pool: pg.Pool | null = null;
+let chosen: DbConfig | null = null;
+
+/** Picks the connection before the pool is first used (the setup page does this once the file is written). */
+export function useDbConfig(cfg: DbConfig) { chosen = cfg; }
 
 export function getPool(): pg.Pool {
   if (pool) return pool;
+  const cfg = chosen ?? loadDbConfig().config;
+  if (!cfg) throw new Error('No database is configured. Set DATABASE_URL or finish the setup page.');
   // In production connect directly as utilities_app. For local runs and tests, connect as the
   // owner and drop to the restricted role so row-level security applies exactly as in production.
   pool = new pg.Pool({
-    connectionString: process.env.DATABASE_URL,
-    max: 10,
+    ...poolConfig(cfg),
     ...(process.env.DB_SET_ROLE === '1' ? { options: '-c role=utilities_app' } : {}),
   });
   return pool;

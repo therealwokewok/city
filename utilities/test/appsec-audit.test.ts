@@ -342,12 +342,14 @@ describe('checked and fine', () => {
   });
   it('/api/city exposes only public office details, never settings such as fees, limits or the update repo', async () => {
     const r = await inject(app, S.host, 'GET', '/api/city');
-    expect(Object.keys(r.json).sort()).toEqual(['demo', 'has_logo', 'name', 'office_hours', 'phone', 'remit_to', 'return_address', 'services', 'state', 'timezone']);
+    // the payment and plan limits are public rules the pay page shows; fees, approval limits and the update source stay private
+    expect(Object.keys(r.json).sort()).toEqual(['brand_sub', 'demo', 'has_logo', 'name', 'office_hours', 'office_name', 'pay_max_cents', 'pay_min_cents', 'phone', 'plan_max_installments', 'remit_to', 'return_address', 'services', 'state', 'timezone']);
   });
   it('the audit log holds hashes and ids, never codes, tokens, card numbers or link codes', async () => {
     const rows = await owner.query('select action, detail from audit_log where city_id = $1', [S.cityId]);
     for (const row of rows.rows) {
-      const text = JSON.stringify(row.detail);
+      // ids are random hex, so a segment can happen to be eight digits; they are not what this test is about
+      const text = JSON.stringify(row.detail).replace(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/g, 'ID');
       expect(text).not.toMatch(/\b\d{8}\b/);           // sign-in code
       expect(text).not.toMatch(/[A-Z2-9]{5}-[A-Z2-9]{5}/); // link code
       expect(text).not.toMatch(/token|secret|password/i);

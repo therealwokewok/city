@@ -1,5 +1,6 @@
 import { h, field, money, plainDate, showError, busy, confirmDialog, announce, todayIso, fill } from '../dom.js';
 import { api, has, state } from '../api.js';
+import { dbFields, testReport } from '../setup.js';
 
 const safe = (fn, title = 'Settings') => async (...a) => {
   try { return await fn(...a); } catch (e) { return h('div', {}, h('h1', {}, title), h('p', { class: 'error', role: 'alert' }, e.message)); }
@@ -19,9 +20,11 @@ export const hub = safe(async () => {
   const card = (title, text, href) => h('section', { class: 'card' }, h('h2', {}, title), h('p', {}, text), h('a', { class: 'btn secondary', href }, 'Open'));
   const cards = [];
   if (has('city_admin', 'site_admin', 'auditor')) cards.push(card('People and roles', 'Add staff, choose what each person can do, turn off someone who left.', '#/admin/people'));
+  if (has('city_admin', 'site_admin')) cards.push(card('The city and its web addresses', 'The city\'s name, state and time zone, and the web addresses this site answers to.', '#/admin/city'));
   if (has('city_admin', 'site_admin')) cards.push(card('City settings', 'Due dates, late charges, online payment fees, phone number, office hours and return address.', '#/admin/settings'));
   if (has('city_admin', 'site_admin')) cards.push(card('Colors, logo and demo mode', 'Match the city website: colors and logo on every page, and the demo notice on or off.', '#/admin/appearance'));
   if (has('city_admin', 'site_admin')) cards.push(card('Updates', 'See if a newer version of this program is ready, and choose where updates come from.', '#/admin/updates'));
+  if (has('site_admin')) cards.push(card('Database', 'Where the records are kept: the connection, encryption and a test button.', '#/admin/database'));
   if (has('city_admin', 'billing_clerk')) cards.push(card('Services and rates', 'Turn water, sewer, trash and electric on or off, and set what each one costs.', '#/admin/rates'));
   if (has('city_admin', 'billing_clerk')) cards.push(card('Printing', 'Set the paper and envelope sizes you own and where each item prints.', '#/admin/printing'));
   if (has('city_admin', 'auditor')) cards.push(card('Activity log', 'See who did what, and check that the record has not been changed.', '#/admin/audit'));
@@ -85,7 +88,9 @@ export const settings = safe(async () => {
   const money = has('city_admin');
   const lock = (el) => { if (!money) el.querySelectorAll('input, textarea, select').forEach((i) => { i.disabled = true; }); return el; };
   const form = h('form', { novalidate: true, class: 'card' },
-    field({ id: 'phone', label: 'City Hall phone number', value: s.phone, autocomplete: 'off', inputmode: 'tel' }),
+    field({ id: 'office_name', label: 'What residents call the office', hint: 'Used in messages such as "Call City Hall". For example City Hall, Village Hall, Town Hall or Utility Office.', value: s.office_name, maxlength: 60 }),
+    field({ id: 'brand_sub', label: 'The word under the city name at the top of every page', hint: 'Usually Utilities. A water district might say Water.', value: s.brand_sub, maxlength: 60 }),
+    field({ id: 'phone', label: 'Office phone number', value: s.phone, autocomplete: 'off', inputmode: 'tel' }),
     field({ id: 'office_hours', label: 'Office hours', hint: 'Shown at the bottom of every page', value: s.office_hours }),
     field({ id: 'return_address', label: 'City return address', hint: 'Printed on bills and envelopes', tag: 'textarea', value: s.return_address, maxlength: 500 }),
     field({ id: 'remit_to', label: 'Where to mail payments', hint: 'Printed on bills', tag: 'textarea', value: s.remit_to, maxlength: 500 }),
@@ -94,6 +99,10 @@ export const settings = safe(async () => {
     lock(field({ id: 'shutoff', label: 'Days after the due date before a shutoff can be listed', inputmode: 'numeric', value: s.shutoff_notice_days })),
     lock(field({ id: 'limit', label: 'Extra approval above this amount (dollars)', hint: 'Above this, one-time charges need an approver, and bill changes need two different approvers', inputmode: 'decimal', value: s.approval_limit_cents / 100 })),
     lock(field({ id: 'tax', label: 'Sales tax (percent)', hint: 'Use 0 if the city does not charge tax on utilities', inputmode: 'decimal', value: s.tax_bps / 100 })),
+    lock(field({ id: 'paymin', label: 'Smallest online payment (dollars)', hint: 'Part payments below this are not accepted online', inputmode: 'decimal', value: s.pay_min_cents / 100, class: 'short' })),
+    lock(field({ id: 'paymax', label: 'Largest online payment (dollars)', inputmode: 'decimal', value: s.pay_max_cents / 100, class: 'short' })),
+    lock(field({ id: 'planmax', label: 'Most monthly payments a resident may ask for in a payment plan', hint: '2 to 24. Staff can always set up to 24 for a customer who calls.', inputmode: 'numeric', value: s.plan_max_installments, class: 'short' })),
+    lock(field({ id: 'planfirst', label: 'A payment plan must start within this many months', hint: '1 to 12', inputmode: 'numeric', value: s.plan_first_due_months, class: 'short' })),
     field({ id: 'factor', label: 'Flag a meter reading that uses this many times the last use', hint: 'For example 3 catches a reading that is three times higher than last time', inputmode: 'decimal', value: s.high_usage_factor }),
     field({ id: 'stepup', label: 'Minutes a safety check stays good', hint: 'Staff retype an emailed code before risky actions. This is how long it lasts, from 1 to 30 minutes.', inputmode: 'numeric', value: s.stepup_minutes }),
     lock(feeFields(s)),
@@ -107,6 +116,7 @@ export const settings = safe(async () => {
     try {
       const body = {
         phone: v('phone').trim(), office_hours: v('office_hours').trim(), return_address: v('return_address').trim(), remit_to: v('remit_to').trim(),
+        office_name: v('office_name').trim(), brand_sub: v('brand_sub').trim(),
         high_usage_factor: need('factor', 'High use flag', { min: 1, max: 1000 }),
         stepup_minutes: Math.round(need('stepup', 'Safety check minutes', { min: 1, max: 30 })),
       };
@@ -116,6 +126,10 @@ export const settings = safe(async () => {
         shutoff_notice_days: Math.round(need('shutoff', 'Days before a shutoff', { max: 365 })),
         approval_limit_cents: Math.round(need('limit', 'Bill change limit') * 100),
         tax_bps: Math.round(need('tax', 'Sales tax', { max: 100 }) * 100),
+        pay_min_cents: Math.round(need('paymin', 'Smallest online payment', { min: 0.5 }) * 100),
+        pay_max_cents: Math.round(need('paymax', 'Largest online payment', { min: 1 }) * 100),
+        plan_max_installments: Math.round(need('planmax', 'Most monthly payments', { min: 2, max: 24 })),
+        plan_first_due_months: Math.round(need('planfirst', 'Plan start window', { min: 1, max: 12 })),
         card_fee: form.querySelector('input[name=card_fee]:checked')?.value || 'off',
         card_fee_bps: Math.round(need('cfp', 'Card fee percent', { max: 20 }) * 100),
         card_fee_fixed_cents: Math.round(need('cff', 'Card fee cents', { max: 500 })),
@@ -338,7 +352,7 @@ const SRC_LABEL = {
   static: 'Fixed text you type', 'city.name': 'City name', 'city.return_address': 'City return address', 'city.remit_to': 'Where to mail payments',
   'city.office_hours': 'Office hours', 'account.name': 'Customer name', 'account.number': 'Account number', 'account.service_address': 'Service address',
   'account.mailing_address': 'Mailing address', 'bill.period': 'Billing period', 'bill.due': 'Due date', 'bill.total': 'Total due', 'bill.lines': 'List of charges',
-  return_address: 'Return address', recipient: 'Customer name and address', 'city.phone': 'City Hall phone number',
+  return_address: 'Return address', recipient: 'Customer name and address', 'city.phone': 'Office phone number',
   box: 'A box (frame) around part of the page', line: 'A line across the page (divider)',
 };
 const BILL_SOURCES = ['static', 'city.name', 'city.return_address', 'city.remit_to', 'city.office_hours', 'city.phone', 'account.name', 'account.number', 'account.service_address', 'account.mailing_address', 'bill.period', 'bill.due', 'bill.total', 'bill.lines', 'box', 'line'];
@@ -358,7 +372,7 @@ const STARTER = {
     { source: 'account.number', x: 4.75, y: 0.7, size: 10, label: 'Account number: ', width: 3.1 },
     { source: 'account.service_address', x: 4.75, y: 0.92, size: 10, label: 'Service at: ', width: 3.1 },
     { source: 'bill.period', x: 4.75, y: 1.14, size: 9, label: 'Billing period: ', width: 3.1 },
-    { source: 'city.phone', x: 4.75, y: 1.5, size: 9, label: 'Questions? Call City Hall at ', width: 3.1 },
+    { source: 'city.phone', x: 4.75, y: 1.5, size: 9, label: 'Questions? Call us at ', width: 3.1 },
     { source: 'account.name', x: 1, y: 2.15, size: 11 },
     { source: 'account.mailing_address', x: 1, y: 2.35, size: 11, width: 3.4 },
     { source: 'box', x: 4.85, y: 2.15, width: 3.15, height: 1.05, shade: true, text: 'Amount due' },
@@ -367,7 +381,7 @@ const STARTER = {
     { source: 'line', x: 0.5, y: 3.5, width: 7.5 },
     { source: 'static', x: 0.5, y: 3.65, size: 12, bold: true, text: 'What you are being charged for' },
     { source: 'bill.lines', x: 0.5, y: 3.95, size: 10, width: 7.5, height: 3.9 },
-    { source: 'city.office_hours', x: 0.5, y: 8.05, size: 9, width: 7.5, label: 'City Hall hours: ' },
+    { source: 'city.office_hours', x: 0.5, y: 8.05, size: 9, width: 7.5, label: 'Office hours: ' },
     { source: 'line', x: 0.5, y: 8.55, width: 7.5, shade: true, text: 'Cut here and send the bottom part with your payment' },
     { source: 'box', x: 0.5, y: 8.8, width: 7.5, height: 1.85, text: 'Payment stub' },
     { source: 'account.name', x: 0.7, y: 9.12, size: 10, bold: true, width: 3.6 },
@@ -500,7 +514,7 @@ const ACTION = {
   'approval.reject': 'Turned down a bill change', 'charge.create': 'Added a one-time charge', 'dispute.open': 'A resident asked about a bill',
   'dispute.resolve': 'Answered a bill question', 'ledger.reverse': 'Reversed a ledger entry', 'meter.create': 'Added a meter',
   'penalty.run': 'Added late charges', 'account.create': 'Added a customer account', 'account.linkcode.regen': 'Made a new link code',
-  'account.service': 'Changed a customer service', 'request.create': 'A resident made a service request', 'request.update': 'Updated a service request', 'auth.login': 'Signed in', 'auth.stepup': 'Passed a safety check', 'city.bootstrap': 'City was set up', 'payments.wallets': 'Turned on Apple Pay for the web address',
+  'account.service': 'Changed a customer service', 'request.create': 'A resident made a service request', 'request.update': 'Updated a service request', 'auth.login': 'Signed in', 'auth.stepup': 'Passed a safety check', 'city.bootstrap': 'City was set up', 'payments.wallets': 'Turned on Apple Pay for the web address', 'city.update': 'Changed the city name, time zone or web addresses', 'database.update': 'Changed the database connection',
 };
 const humanAction = (a) => ACTION[a] || a.replace(/[._]/g, ' ').replace(/^./, (c) => c.toUpperCase());
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -607,3 +621,79 @@ export const updates = safe(async () => {
   });
   return h('div', {}, back(), h('h1', {}, 'Updates'), status, msg, form);
 }, 'Updates');
+
+// =============== the city itself ===============
+const ZONE_NAMES = { 'America/New_York': 'Eastern', 'America/Chicago': 'Central', 'America/Denver': 'Mountain', 'America/Phoenix': 'Arizona (no daylight saving)', 'America/Los_Angeles': 'Pacific',
+  'America/Anchorage': 'Alaska', 'Pacific/Honolulu': 'Hawaii', 'America/Indiana/Indianapolis': 'Eastern (Indiana)', 'America/Detroit': 'Eastern (Michigan)', 'America/Kentucky/Louisville': 'Eastern (Louisville)',
+  'America/Boise': 'Mountain (Idaho)', 'America/Juneau': 'Alaska (Juneau)', 'America/Puerto_Rico': 'Atlantic (Puerto Rico)' };
+export const city = safe(async () => {
+  const c = await api('GET', '/api/staff/city');
+  const msg = h('div', { role: 'status' });
+  const zones = c.timezones.includes(c.timezone) ? c.timezones : [c.timezone, ...c.timezones];
+  const form = h('form', { novalidate: true, class: 'card' },
+    field({ id: 'nm', label: 'City name', hint: 'Shown at the top of every page, on bills and in emails. For example "City of Example" or "Village of Example".', value: c.name, required: true, maxlength: 80 }),
+    field({ id: 'st', label: 'State', hint: 'Two letters', value: c.state, maxlength: 2, class: 'short', autocapitalize: 'characters' }),
+    select('tz', 'Time zone', zones.map((z) => [z, ZONE_NAMES[z] ? `${ZONE_NAMES[z]} (${z})` : z]), c.timezone, 'Decides what "today" means for due dates and late charges'),
+    field({ id: 'hosts', label: 'Web addresses this site answers to', hint: `One per line, like utilities.example.gov. You are using ${c.this_host} right now; keep it in the list.`, tag: 'textarea', value: c.hosts.join('\n'), required: true }),
+    h('p', { class: 'hint' }, 'Adding an address here is one of three steps: the address must also point at this server (DNS), and the server must have a certificate for it (most hosts do this on their own).'),
+    h('div', { class: 'actions' }, h('button', { class: 'btn', type: 'submit' }, 'Save')));
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const v = (id) => form.querySelector('#' + id).value;
+    const hosts = v('hosts').split(/[\n,\s]+/).map((x) => x.trim().toLowerCase()).filter(Boolean);
+    try {
+      if (!v('nm').trim()) throw new Error('Please type the city name.');
+      if (!/^[A-Za-z]{2}$/.test(v('st').trim())) throw new Error('The state is two letters, like MO.');
+      if (!hosts.length) throw new Error('Type at least one web address.');
+      await busy(form.querySelector('button[type=submit]'), 'Saving...', () => api('PUT', '/api/staff/city', { name: v('nm').trim(), state: v('st').trim().toUpperCase(), timezone: v('tz'), hosts }));
+      say(msg, 'Saved. Reload the page to see the new name.');
+    } catch (err) { showError(form, err.message); }
+  });
+  return h('div', {}, back(), h('h1', {}, 'The city and its web addresses'), msg, form);
+}, 'The city');
+
+// =============== database (site administrator) ===============
+export const database = safe(async () => {
+  const d = await api('GET', '/api/staff/database');
+  const msg = h('div', { role: 'status' });
+  const facts = h('dl', { class: 'facts' },
+    h('dt', {}, 'Set by'), h('dd', {}, d.source === 'env' ? 'the host, through the DATABASE_URL environment variable' : d.source === 'file' ? `the setup page (saved in ${d.file})` : 'nothing yet'),
+    h('dt', {}, 'How'), h('dd', {}, d.mode === 'url' ? 'One connection address' : d.mode === 'socket' ? 'Local socket' : 'Host and port'),
+    h('dt', {}, 'Where'), h('dd', {}, d.socket ? d.socket : `${d.host || '?'}${d.port ? ':' + d.port : ''}`),
+    h('dt', {}, 'Database'), h('dd', {}, d.database || '?'),
+    h('dt', {}, 'App user'), h('dd', {}, d.user || '?'),
+    h('dt', {}, 'Encryption'), h('dd', {}, d.ssl === 'verify-full' ? 'Required and verified' : d.ssl === 'require' ? 'Required' : d.ssl === 'disable' ? 'Off' : d.ssl),
+    h('dt', {}, 'Owner for updates'), h('dd', {}, d.has_owner ? (d.owner_user || 'set') : 'not set (updates to the tables are run by hand)'),
+    h('dt', {}, 'Connections kept open'), h('dd', {}, String(d.pool_max)));
+  const report = h('div', { 'aria-live': 'polite' });
+  const testNow = h('button', { class: 'btn secondary', type: 'button' }, 'Test the current connection');
+  const dbf = dbFields({ mode: d.mode, host: d.host, port: d.port, database: d.database, user: d.user, socket: d.socket, ssl: d.ssl === 'require' || d.ssl === 'verify-full' ? d.ssl : '', pool_max: d.pool_max });
+  const change = h('form', { novalidate: true, class: 'card', hidden: true },
+    h('h2', {}, 'Change the connection'),
+    h('p', { class: 'notice warn' }, 'Point this only at a database that already holds this city (for example after moving it to a new server or a managed service). The change is checked first, then takes effect when the program is restarted.'),
+    dbf.root,
+    h('p', { class: 'hint' }, 'Leave the password empty to keep the one already saved. The owner connection used for updates is kept as it is.'),
+    h('div', { class: 'actions row' }, h('button', { class: 'btn secondary', type: 'button', id: 'tst' }, 'Test these settings'), h('button', { class: 'btn', type: 'submit' }, 'Save (takes effect at restart)'), h('button', { class: 'btn secondary', type: 'button', id: 'cancel' }, 'Cancel')),
+    report);
+  const open = h('button', { class: 'btn secondary', type: 'button' }, 'Change the connection');
+  open.addEventListener('click', () => { change.hidden = false; open.hidden = true; change.querySelector('input').focus(); });
+  change.querySelector('#cancel').addEventListener('click', () => { change.hidden = true; open.hidden = false; });
+  testNow.addEventListener('click', async () => {
+    try { fill(msg, testReport(await busy(testNow, 'Testing...', () => api('POST', '/api/staff/database/test', { current: true })))); } catch (e) { showError(msg, e.message); }
+  });
+  change.querySelector('#tst').addEventListener('click', async (e) => {
+    try { fill(report, testReport(await busy(e.target, 'Testing...', () => api('POST', '/api/staff/database/test', { db: dbf.read() })))); } catch (err) { fill(report, h('p', { class: 'error', role: 'alert' }, err.message)); }
+  });
+  change.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    try {
+      const r = await busy(change.querySelector('button[type=submit]'), 'Saving...', () => api('PUT', '/api/staff/database', { db: dbf.read() }));
+      say(msg, `Saved to ${r.file}. Restart the program for it to take effect.`); change.hidden = true; open.hidden = false;
+    } catch (err) { showError(change, err.message); }
+  });
+  return h('div', {}, back(), h('h1', {}, 'Database'), msg,
+    h('section', { class: 'card' }, h('h2', {}, 'Where the records are'), facts, h('div', { class: 'actions row' }, testNow, d.editable ? open : null),
+      d.editable ? null : h('p', { class: 'hint' }, 'To change the connection, change DATABASE_URL where the program is started.')),
+    change,
+    h('section', { class: 'card' }, h('h2', {}, 'Backups'), h('p', {}, 'The ready-made compose file takes a nightly backup and keeps 30 days. Copy backups off this computer, and practise restoring one. See docs/updates.md.')));
+}, 'Database');

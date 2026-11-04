@@ -1,6 +1,8 @@
 import { $, h, field, showError, busy, fill } from './dom.js';
 
 export const state = { me: null, city: null };
+/** What residents call the office ("City Hall" unless the city says otherwise). */
+export const office = () => state.city?.office_name || 'City Hall';
 
 export class ApiError extends Error {
   constructor(message, status) { super(message); this.status = status; }
@@ -27,7 +29,7 @@ export async function api(method, url, body) {
     }
     if (res.status === 401 && state.me) { state.me = null; location.hash = '#/signin'; throw new ApiError('You were signed out to keep your account safe. Please sign in again.', 401); }
     const friendly = { 403: "You don't have permission to do that.", 404: "We couldn't find that.", 429: 'Too many tries. Please wait a minute.' };
-    throw new ApiError(data?.error || friendly[res.status] || 'Something went wrong. Please try again, or call City Hall.', res.status);
+    throw new ApiError(data?.error || friendly[res.status] || `Something went wrong. Please try again, or call ${office()}.`, res.status);
   }
   return data;
 }

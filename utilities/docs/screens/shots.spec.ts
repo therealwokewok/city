@@ -354,6 +354,9 @@ test('city admin', async ({ page }) => {
   await safetyCheck(page, me);
   await expect(page.getByText('Customer service added to Jo Service.').first()).toBeVisible();
   await shot(page, 'admin-people');
+  await page.goto('/#/admin/city');
+  await expect(page.getByRole('heading', { level: 1, name: 'The city and its web addresses' })).toBeVisible();
+  await shot(page, 'admin-city');
   await page.goto('/#/admin/settings');
   await expect(page.getByRole('heading', { level: 1, name: 'City settings' })).toBeVisible();
   await shot(page, 'admin-settings');
@@ -405,6 +408,11 @@ test('site admin', async ({ page }) => {
   await page.goto('/#/admin/settings');
   await expect(page.getByText('can only be changed by a city administrator')).toBeVisible();
   await shot(page, 'siteadmin-settings');
+  await page.goto('/#/admin/database');
+  await expect(page.getByRole('heading', { level: 1, name: 'Database' })).toBeVisible();
+  await page.getByRole('button', { name: 'Test the current connection' }).click();
+  await expect(page.getByText(/Connected to PostgreSQL/)).toBeVisible();
+  await shot(page, 'siteadmin-database');
   await page.goto('/#/staff/accounts');
   await expect(page.getByText('Not allowed')).toBeVisible();
   await shot(page, 'siteadmin-refused', { full: false });

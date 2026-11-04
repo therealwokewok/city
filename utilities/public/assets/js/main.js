@@ -1,5 +1,5 @@
 import { $, h, announce, fill } from './dom.js';
-import { api, state, has, isStaff } from './api.js';
+import { api, state, has, isStaff, office } from './api.js';
 import { signIn } from './views/signin.js';
 import * as resident from './views/resident.js';
 import * as reader from './views/reader.js';
@@ -48,6 +48,8 @@ const routes = [
   [/^\/me\/signin$/, security.mySignIn],
   [/^\/admin$/, admin.hub],
   [/^\/admin\/settings$/, admin.settings],
+  [/^\/admin\/city$/, admin.city],
+  [/^\/admin\/database$/, admin.database],
   [/^\/admin\/people$/, admin.people],
   [/^\/admin\/rates$/, admin.rates],
   [/^\/admin\/printing$/, admin.printing],
@@ -147,7 +149,7 @@ function drawFooter() {
   const c = state.city || {};
   const foot = $('#foot');
   fill(foot, 
-    h('p', {}, h('strong', {}, 'Need help? '), c.phone ? ['Call City Hall at ', h('a', { href: 'tel:' + c.phone.replace(/[^\d+]/g, '') }, c.phone), '. '] : 'Please call City Hall. ',
+    h('p', {}, h('strong', {}, 'Need help? '), c.phone ? [`Call ${office()} at `, h('a', { href: 'tel:' + c.phone.replace(/[^\d+]/g, '') }, c.phone), '. '] : `Please call ${office()}. `,
       c.office_hours ? `Hours: ${c.office_hours}.` : ''),
     c.return_address ? h('p', {}, c.return_address.split('\n').join(', ')) : null,
     state.me ? h('p', {}, h('a', { href: '#/me/signin' }, 'My sign-in options')) : null);
@@ -158,7 +160,7 @@ window.addEventListener('hashchange', render);
 // ---------- start ----------
 (async function start() {
   try { state.city = await api('GET', '/api/city'); } catch { state.city = { name: 'City utilities' }; }
-  { const b = $('#brand'); b.textContent = ''; const n = document.createElement('span'); n.className = 'brand-name'; n.textContent = state.city.name; const u = document.createElement('span'); u.className = 'brand-sub'; u.textContent = 'Utilities'; b.append(n, u); }
+  { const b = $('#brand'); b.textContent = ''; const n = document.createElement('span'); n.className = 'brand-name'; n.textContent = state.city.name; const u = document.createElement('span'); u.className = 'brand-sub'; u.textContent = state.city.brand_sub || 'Utilities'; b.append(n, u); }
   if (state.city.has_logo) { const img = document.createElement('img'); img.src = '/api/city/logo'; img.alt = ''; img.className = 'brand-logo'; $('#brand').prepend(img); }
   if (state.city.demo) { const d = $('#demo'); d.hidden = false; d.textContent = ''; const st = document.createElement('strong'); st.textContent = 'Demo site.'; d.append(st, ` This is not the official ${state.city.name} utility system. No real bills or payments.`); document.body.classList.add('is-demo'); }
   drawFooter();

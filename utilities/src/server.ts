@@ -27,6 +27,8 @@ import { BillData, EnvelopeData, longDate, longPeriod, mailingLines, renderBills
 import { assertMoneyAllowed, loadSettings, MONEY_SETTINGS, themeCss, validateSettings } from './settings.js';
 import { fmt as fmtCents } from './money.js';
 import { feeFor, feeNotice, methodLabel } from './fees.js';
+import { describeDb, loadDbConfig, saveDbConfig, testDb, validateDbConfig } from './config.js';
+import { migrationsDir } from './migrate.js';
 
 declare module 'fastify' {
   interface FastifyRequest {
@@ -44,6 +46,7 @@ export interface AppDeps {
   scheme?: 'https' | 'http';
   trustProxy?: boolean | number; // true trusts every hop; a number trusts that many proxies in front
   quiet?: boolean;             // no logging at all; the tests set this
+  dbSource?: 'env' | 'file' | 'none'; // where the database connection came from; 'file' lets the site administrator change it
 }
 
 const parse = <T extends ZodTypeAny>(schema: T, data: unknown): z.infer<T> => {
@@ -136,7 +139,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
     if (err.code === '42501' || err.code === '23514') return reply.code(403).send({ error: 'Not allowed' }); // RLS or check constraint
     if (err.validation || err.statusCode === 400 || err.statusCode === 413) return reply.code(err.statusCode ?? 400).send({ error: 'Bad request' });
     req.log.error({ err }, 'unhandled');
-    return reply.code(500).send({ error: 'Something went wrong. Please try again, or call City Hall.' });
+    return reply.code(500).send({ error: 'Something went wrong. Please try again, or call the office.' });
   });
 
   const baseCtx = (req: FastifyRequest): Ctx => ({ cityId: req.cityId, userId: null, perms: [] });
@@ -158,6 +161,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   };
   const cityInfo = async (req: FastifyRequest) => tx(baseCtx(req), async (c) =>
     (await c.query('select name from cities where id = app_city()')).rows[0] as { name: string });
+  const officeName = async (req: FastifyRequest) => tx(baseCtx(req), async (c) => (await loadSettings(c)).office_name);
 
   // ---------- authentication and CSRF for everything under /api except sign-in ----------
   const PUBLIC = new Set(['/api/auth/request-code', '/api/auth/verify', '/api/city']);
@@ -245,13 +249,76 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
     catch { return reply.code(503).type('text/plain').send('Not available right now'); }
   });
 
+  // ---------- the city itself: name, state, time zone and the web addresses it answers to ----------
+  const US_ZONES = ['America/New_York', 'America/Chicago', 'America/Denver', 'America/Phoenix', 'America/Los_Angeles', 'America/Anchorage', 'Pacific/Honolulu',
+    'America/Indiana/Indianapolis', 'America/Detroit', 'America/Kentucky/Louisville', 'America/Boise', 'America/Juneau', 'America/Puerto_Rico'];
+  app.get('/api/staff/city', async (req) => {
+    need(req, 'city.manage');
+    const city = await tx(ctxOf(req), async (c) => (await c.query('select name, state, timezone, hosts from cities where id = app_city()')).rows[0]);
+    return { ...city, timezones: US_ZONES, this_host: req.cityHost };
+  });
+  app.put('/api/staff/city', async (req) => {
+    need(req, 'city.manage'); requireStepUp(req.auth!);
+    const b = parse(z.object({
+      name: z.string().trim().min(1).max(80), state: z.string().trim().toUpperCase().regex(/^[A-Z]{2}$/),
+      timezone: z.string().refine((t) => { try { Intl.DateTimeFormat(undefined, { timeZone: t }); return true; } catch { return false; } }, 'Pick a real time zone'),
+      hosts: z.array(z.string().trim().toLowerCase().regex(/^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*$/, 'A web address looks like utilities.example.gov')).min(1).max(10),
+    }), req.body);
+    const hosts = [...new Set(b.hosts)];
+    return tx(ctxOf(req), async (c) => {
+      const taken = (await c.query('select hosts_taken($1::text[]) as t', [hosts])).rows[0].t as string[];
+      if (taken.length) throw bad(`Another city on this server already uses ${taken.join(', ')}`);
+      if (req.cityHost && /\./.test(req.cityHost) && !hosts.includes(req.cityHost)) throw bad(`Keep ${req.cityHost} in the list: it is the address you are using right now, and removing it would lock everyone out`);
+      await c.query('update cities set name = $1, state = $2, timezone = $3, hosts = $4 where id = app_city()', [b.name, b.state, b.timezone, hosts]);
+      await audit(c, me(req), 'city.update', { name: b.name, state: b.state, timezone: b.timezone, hosts });
+      hostCache.clear();
+      return { ok: true, hosts };
+    });
+  });
+
+  // ---------- the database connection, for the site administrator ----------
+  app.get('/api/staff/database', async (req) => {
+    need(req, 'system.manage');
+    return { ...describeDb(loadDbConfig()), editable: deps.dbSource !== 'env' };
+  });
+  app.post('/api/staff/database/test', async (req) => {
+    need(req, 'system.manage');
+    const b = req.body as any;
+    const current = loadDbConfig().config;
+    // { current: true } tests what is saved now; the browser never sees that connection's secrets.
+    if (b?.current === true) { if (!current) throw bad('No database connection is saved'); return testDb(current, migrationsDir); }
+    let cfg;
+    try { cfg = validateDbConfig(b?.db); } catch (e: any) { throw bad(e.message); }
+    // A blank password keeps the one already saved, so the form never has to show it.
+    if (current && cfg.mode === 'fields' && !cfg.password && current.mode === 'fields' && current.host === cfg.host && current.user === cfg.user) cfg.password = current.password;
+    if (current?.owner && !cfg.owner) cfg.owner = current.owner;
+    return testDb(cfg, migrationsDir);
+  });
+  app.put('/api/staff/database', async (req) => {
+    need(req, 'system.manage'); requireStepUp(req.auth!);
+    if (deps.dbSource === 'env') throw bad('The database connection is set by the host through DATABASE_URL. Change it there.');
+    const b = req.body as any;
+    let cfg;
+    try { cfg = validateDbConfig(b?.db); } catch (e: any) { throw bad(e.message); }
+    const current = loadDbConfig().config;
+    if (current && cfg.mode === 'fields' && !cfg.password && current.mode === 'fields' && current.host === cfg.host && current.user === cfg.user) cfg.password = current.password;
+    if (current?.owner && !cfg.owner) cfg.owner = current.owner;
+    const t = await testDb(cfg, migrationsDir);
+    if (!t.ok) throw bad(`Not saved: ${t.problem}`);
+    if (t.tables === 'none') throw bad('Not saved: that database has no tables. Point this at the database that holds this city, or restore a backup into it first.');
+    const file = saveDbConfig(cfg);
+    await tx(ctxOf(req), (c) => audit(c, me(req), 'database.update', { mode: cfg.mode, host: describeDb({ source: 'file', file, config: cfg }).host }));
+    return { ok: true, file, restart: true };
+  });
+
   app.get('/healthz', async () => ({ ok: true }));
   app.get('/api/city', async (req) => tx(baseCtx(req), async (c) => {
     const s = await loadSettings(c);
     const city = (await c.query('select name, state, timezone from cities where id = app_city()')).rows[0];
     const services = (await c.query('select code, name, kind, enabled from services order by code')).rows;
     const hasLogo = (await c.query('select 1 from city_logo')).rowCount! > 0;
-    return { ...city, demo: s.demo_mode, has_logo: hasLogo, return_address: s.return_address, remit_to: s.remit_to, office_hours: s.office_hours, phone: s.phone, services };
+    return { ...city, demo: s.demo_mode, has_logo: hasLogo, return_address: s.return_address, remit_to: s.remit_to, office_hours: s.office_hours, phone: s.phone,
+      office_name: s.office_name, brand_sub: s.brand_sub, pay_min_cents: s.pay_min_cents, pay_max_cents: s.pay_max_cents, plan_max_installments: s.plan_max_installments, services };
   }));
 
   // ======================= sign in =======================
@@ -341,7 +408,9 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
       const roles = (await c.query('select role from user_roles where user_id = $1', [uid])).rows.map((r) => r.role as string);
       const sess = await createSession(c, uid, roles);
       await c.query('update users set last_login = now() where id = $1', [uid]);
-      await audit(c, uid, 'auth.login.passkey', {});
+      // Which key was used (a phone, a YubiKey) so the activity log can tell them apart.
+      const key = (await c.query('select name from passkeys where user_id = $1 and credential_id = $2', [uid, String(response.id)])).rows[0];
+      await audit(c, uid, 'auth.login.passkey', key ? { passkey: key.name } : {});
       return { ...sess, roles };
     });
     if (!out) throw bad("That passkey didn't work. You can still sign in with an emailed code.");
@@ -410,7 +479,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
     needRole(req, 'resident');
     const b = parse(z.object({ account_number: z.string().min(1).max(40), code: z.string().min(6).max(20) }), req.body);
     const id = await tx(ctxOf(req), (c) => linkAccount(c, me(req), b.account_number, b.code));
-    if (!id) throw bad("That account number and code don't match. Check the bill, or call City Hall.");
+    if (!id) throw bad(`That account number and code don't match. Check the bill, or call ${await officeName(req)}.`);
     return { ok: true, account_id: id };
   });
 
@@ -1162,11 +1231,12 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
       installments: z.number().int().min(2).max(24).optional(), first_due: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional() }), req.body);
     const r = await tx(ctxOf(req), (c) => decideArrangement(c, me(req), id, b));
     const city = await cityInfo(req);
+    const s = await tx(baseCtx(req), (c) => loadSettings(c));
     const text = r.status === 'approved'
       ? `Good news: ${city.name} approved your payment plan.\n\n` + r.schedule!.map((x) => `  ${x.due}: ${fmtCents(x.amount_cents)}`).join('\n') +
         `\n\nPay each amount by its date and there will be no late charges or shutoff for the bills in this plan. New bills are still due as usual.\n` +
         (b.note ? `\nNote from the city: ${b.note}\n` : '') + `\nSign in to see your plan: https://${req.publicHost}/`
-      : `${city.name} could not approve your payment plan request.\n\nReason: ${b.note ?? ''}\n\nPlease call City Hall to talk about other options.`;
+      : `${city.name} could not approve your payment plan request.\n\nReason: ${b.note ?? ''}\n\nPlease call ${s.office_name} to talk about other options.`;
     await emailAccount(req.cityId, r.account_id, r.status === 'approved' ? 'Your payment plan was approved' : 'About your payment plan request', text);
     return { status: r.status, schedule: r.schedule };
   });

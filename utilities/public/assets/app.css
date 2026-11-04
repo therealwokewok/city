@@ -58,6 +58,7 @@ html[data-size="150"] { font-size: 150%; }
 body {
   margin: 0; background: var(--bg); color: var(--text);
   font: 1.25rem/1.5 var(--font-body);
+  overflow-wrap: break-word; /* a long address or code never pushes past the edge of its box */
   padding-bottom: env(safe-area-inset-bottom);
 }
 h1, h2, h3 { font-family: var(--font-display); color: var(--heading); font-weight: 700; }

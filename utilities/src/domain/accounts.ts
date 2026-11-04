@@ -3,6 +3,7 @@ import type pg from 'pg';
 import { audit } from '../db.js';
 import { canGrant } from '../permissions.js';
 import { validateRate } from '../rates.js';
+import { officeName } from '../settings.js';
 
 export class HttpError extends Error {
   constructor(public status: number, message: string) { super(message); }
@@ -79,13 +80,14 @@ export async function setMeterActive(c: pg.PoolClient, actor: string, meterId: s
 }
 
 export async function linkAccount(c: pg.PoolClient, actor: string, number: string, code: string) {
+  const office = await officeName(c);
   try {
     const r = await c.query('select link_account($1, $2) as id', [number.trim(), hashLinkCode(code)]);
     const id = r.rows[0].id as string | null;
     await audit(c, actor, id ? 'resident.link.ok' : 'resident.link.fail', id ? { account_id: id } : {});
     return id;
   } catch (e: any) {
-    if (e.code === 'P0429') throw new HttpError(429, 'Too many tries. Please call City Hall for help.');
+    if (e.code === 'P0429') throw new HttpError(429, `Too many tries. Please call ${office} for help.`);
     throw e;
   }
 }
@@ -191,7 +193,7 @@ export async function openDispute(c: pg.PoolClient, actor: string, billId: strin
   const b = await c.query('select id, account_id from bills where id = $1', [billId]); // RLS: only your own posted bills
   if (!b.rows[0]) throw notFound('Bill not found');
   const open = await c.query(`select 1 from disputes where bill_id = $1 and status = 'open'`, [billId]);
-  if (open.rows[0]) throw bad('You already sent a question about this bill. City Hall will get back to you.');
+  if (open.rows[0]) throw bad(`You already sent a question about this bill. ${await officeName(c)} will get back to you.`);
   const r = await c.query(
     `insert into disputes (city_id, bill_id, account_id, opened_by, reason) values (app_city(), $1, $2, $3, $4) returning id`,
     [billId, b.rows[0].account_id, actor, reason.trim()],
@@ -237,10 +239,10 @@ export async function createServiceRequest(c: pg.PoolClient, actor: string, r: N
     if (!link.rows[0]) throw forbid('That account is not linked to you.');
     const open = await c.query(`select count(*)::int as n from service_requests where requested_by = $1 and account_id = $2 and kind = $3 and status in ('open','scheduled')`, [actor, r.account_id, r.kind]);
     if (open.rows[0].n > 0 && r.kind !== 'leak') throw bad('You already have this request open. We will contact you soon.');
-    if (r.kind === 'leak' && open.rows[0].n >= 3) throw bad('You already have leak reports open. Please call City Hall if it is urgent.');
+    if (r.kind === 'leak' && open.rows[0].n >= 3) throw bad(`You already have leak reports open. Please call ${await officeName(c)} if it is urgent.`);
   } else {
     const open = await c.query(`select count(*)::int as n from service_requests where requested_by = $1 and kind = 'start' and status in ('open','scheduled')`, [actor]);
-    if (open.rows[0].n >= 3) throw bad('You already have several new service requests open. Please call City Hall.');
+    if (open.rows[0].n >= 3) throw bad(`You already have several new service requests open. Please call ${await officeName(c)}.`);
   }
   const ins = await c.query(
     `insert into service_requests (city_id, requested_by, account_id, kind, requested_date, service_address, forwarding_address, contact_name, phone, note)

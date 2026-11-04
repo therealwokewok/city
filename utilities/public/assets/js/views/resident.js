@@ -1,5 +1,5 @@
 import { h, field, money, plainDate, plainNote, showError, busy, confirmDialog, announce, fill, flash } from '../dom.js';
-import { api, state } from '../api.js';
+import { api, state, office } from '../api.js';
 import { mountPaymentElement } from '../stripe.js';
 
 const period = (b) => (b.period_start ? new Date(+b.period_end.slice(0, 4), +b.period_end.slice(5, 7) - 1, 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' }) : plainDate(b.posted_at));
@@ -18,7 +18,7 @@ function planSection(id, d) {
   const box = h('section', { class: 'card', 'aria-labelledby': 'plan-h' }, h('h2', { id: 'plan-h' }, 'Payment plan'));
   if (p && p.status === 'approved' && p.state !== 'paid_off') {
     box.append(...[
-      p.state === 'behind' ? h('p', { class: 'notice warn' }, `You are behind on your plan. Please pay ${money(p.next.amount_cents)} as soon as you can, or call City Hall.`)
+      p.state === 'behind' ? h('p', { class: 'notice warn' }, `You are behind on your plan. Please pay ${money(p.next.amount_cents)} as soon as you can, or call ${office()}.`)
         : h('p', { class: 'notice' }, '✓ Your plan is approved and you are keeping up with it.'),
       p.next ? h('p', {}, `Next payment: ${money(p.next.amount_cents)} by ${plainDate(p.next.due)}.`) : null,
       planRows(p.schedule, p.next),
@@ -34,16 +34,17 @@ function planSection(id, d) {
       try { await busy(take, 'One moment...', () => api('POST', `/api/resident/arrangements/${p.id}/cancel`, {})); location.reload(); } catch (e) { showError(msg, e.message); }
     });
     box.append(h('p', {}, h('span', { class: 'status warn' }, 'Waiting for the city')),
-      h('p', {}, `You asked to pay ${money(p.total_cents)} in ${p.installments} monthly payments. Someone at City Hall will look at it and email you.`),
+      h('p', {}, `You asked to pay ${money(p.total_cents)} in ${p.installments} monthly payments. Someone at ${office()} will look at it and email you.`),
       planRows(p.schedule), msg, h('div', { class: 'actions' }, take));
     return box;
   }
   if (p && p.status === 'declined') box.append(h('p', { class: 'notice warn' }, `The city could not approve your last request. ${p.decision_note || ''}`));
   if (d.balance_cents < 200) return p && p.status === 'declined' ? box : null; // nothing to ask for
-  const sel = h('select', { id: 'n' }, [2, 3, 4, 5, 6, 9, 12].filter((n) => d.balance_cents >= n * 100).map((n) =>
+  const most = state.city?.plan_max_installments ?? 12;
+  const sel = h('select', { id: 'n' }, [2, 3, 4, 5, 6, 9, 12, 18, 24].filter((n) => n <= most && d.balance_cents >= n * 100).map((n) =>
     h('option', { value: String(n) }, `${n} payments of about ${money(Math.ceil(d.balance_cents / n))}`)));
   const form = h('form', { novalidate: true, hidden: true },
-    h('p', {}, `You owe ${money(d.balance_cents)}. Choose how many monthly payments you would like. City Hall decides, and will email you.`),
+    h('p', {}, `You owe ${money(d.balance_cents)}. Choose how many monthly payments you would like. ${office()} decides, and will email you.`),
     h('div', { class: 'field' }, h('label', { for: 'n' }, 'Number of monthly payments'), sel),
     field({ id: 'why', label: 'Why do you need more time?', hint: 'A sentence or two is fine. For example: "Medical bills this month."', tag: 'textarea', maxlength: 1000, required: true }),
     h('div', { class: 'actions' }, h('button', { class: 'btn', type: 'submit' }, 'Send my request to the city')));
@@ -92,7 +93,7 @@ export function link() {
     field({ id: 'num', label: 'Account number', hint: 'Numbers and letters near the top of your bill', autocomplete: 'off', inputmode: 'text', autocapitalize: 'characters', required: true }),
     field({ id: 'code', label: 'Link code', hint: 'Looks like ABCDE-12345. Capital letters or small ones both work.', autocomplete: 'off', autocapitalize: 'characters', spellcheck: 'false', required: true }),
     h('div', { class: 'actions' }, h('button', { class: 'btn', type: 'submit' }, 'Connect my account')),
-    h('p', { class: 'muted' }, "Don't have a code? Call City Hall and we will help you. This keeps your account private."));
+    h('p', { class: 'muted' }, `Don't have a code? Call ${office()} and we will help you. This keeps your account private.`));
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
     const num = form.querySelector('#num').value.trim(), code = form.querySelector('#code').value.trim();
@@ -137,7 +138,7 @@ export async function account(id) {
   });
   const autoSection = h('section', { class: 'card', 'aria-labelledby': 'autopay-h' }, h('h2', { id: 'autopay-h' }, 'Autopay'),
     ap.on ? h('p', {}, `On. We take your payment on the due date from: ${ap.label}.`) : h('p', {}, 'Let us take your payment on the due date so you never pay late.'),
-    h('p', { class: 'hint' }, 'You type your card or bank details into Stripe\'s secure boxes on this page. Stripe is the city\'s payment company; City Hall never sees or keeps your details. You can turn this off at any time.'),
+    h('p', { class: 'hint' }, `You type your card or bank details into Stripe's secure boxes on this page. Stripe is the city's payment company; ${office()} never sees or keeps your details. You can turn this off at any time.`),
     autoMsg, h('div', { class: 'actions' }, autoBtn));
   const a = d.account;
   const toggle = h('input', { type: 'checkbox', id: 'paperless', checked: a.paperless ? true : null });
@@ -171,7 +172,7 @@ export async function account(id) {
     autoSection);
 }
 
-const kindName = (k) => ({ bill: 'New bill', payment: 'Payment', adjustment: 'Adjustment by City Hall', penalty: 'Late charge', reversal: 'Correction', charge: 'Charge', refund: 'Refund' }[k] || k);
+const kindName = (k) => ({ bill: 'New bill', payment: 'Payment', adjustment: 'Adjustment by the city', penalty: 'Late charge', reversal: 'Correction', charge: 'Charge', refund: 'Refund' }[k] || k);
 
 export async function bill(accountId, billId) {
   const d = await api('GET', `/api/resident/accounts/${accountId}`);
@@ -179,14 +180,14 @@ export async function bill(accountId, billId) {
   if (!b) return h('div', {}, h('h1', {}, 'Bill not found'), h('a', { href: `#/account/${accountId}` }, 'Back to my account'));
   const disputeForm = h('form', { novalidate: true, hidden: true },
     field({ id: 'why', label: 'What looks wrong?', hint: 'For example: "My water use seems too high." A clerk will look at it and get back to you.', tag: 'textarea', maxlength: 2000, required: true }),
-    h('div', { class: 'actions' }, h('button', { class: 'btn', type: 'submit' }, 'Send to City Hall')));
+    h('div', { class: 'actions' }, h('button', { class: 'btn', type: 'submit' }, `Send to ${office()}`)));
   disputeForm.addEventListener('submit', async (e) => {
     e.preventDefault();
     const reason = disputeForm.querySelector('#why').value.trim();
     if (!reason) { showError(disputeForm, 'Please tell us what looks wrong.'); return; }
     try {
       await busy(disputeForm.querySelector('button'), 'Sending...', () => api('POST', `/api/resident/bills/${billId}/dispute`, { reason }));
-      fill(disputeForm, h('p', { class: 'notice' }, "Thank you. City Hall got your message and will contact you. You don't need to pay the part in question until it is checked, but please call us if the due date is close."));
+      fill(disputeForm, h('p', { class: 'notice' }, `Thank you. ${office()} got your message and will contact you. You don't need to pay the part in question until it is checked, but please call us if the due date is close.`));
     } catch (err) { showError(disputeForm, err.message); }
   });
   const askBtn = h('button', { class: 'btn secondary', type: 'button', 'aria-expanded': 'false', onclick: (e) => { disputeForm.hidden = false; e.target.hidden = true; disputeForm.querySelector('textarea').focus(); } }, 'Something looks wrong');
@@ -213,7 +214,7 @@ export async function pay(id) {
   const plan = h('input', { type: 'radio', name: 'amt', id: 'amt-plan', value: 'plan' });
   if (planNext >= 100) { plan.checked = true; full.checked = false; }
   const custom = h('input', { type: 'text', inputmode: 'decimal', id: 'custom', autocomplete: 'off', disabled: true, 'aria-describedby': 'custom-hint' });
-  const customField = h('div', { class: 'field', hidden: true }, h('label', { for: 'custom' }, 'Amount in dollars'), h('p', { class: 'hint', id: 'custom-hint' }, 'For example 25.00. The smallest payment is $1.00.'), custom);
+  const customField = h('div', { class: 'field', hidden: true }, h('label', { for: 'custom' }, 'Amount in dollars'), h('p', { class: 'hint', id: 'custom-hint' }, `For example 25.00. The smallest payment is ${money(state.city?.pay_min_cents ?? 100)}.`), custom);
   const sync = () => { custom.disabled = !other.checked; customField.hidden = !other.checked; if (other.checked) custom.focus(); };
   full.addEventListener('change', sync); other.addEventListener('change', sync); plan.addEventListener('change', sync);
   const form = h('form', { novalidate: true },
@@ -235,7 +236,8 @@ export async function pay(id) {
       if (!/^\d+(\.\d{1,2})?$/.test(v)) { showError(form, 'Please type an amount like 25.00.'); custom.focus(); return; }
       cents = Math.round(parseFloat(v) * 100);
     }
-    if (cents < 100 || cents > 1000000) { showError(form, 'You can pay between $1.00 and $10,000.00 at a time.'); custom.focus(); return; }
+    const lo = state.city?.pay_min_cents ?? 100, hi = state.city?.pay_max_cents ?? 1000000;
+    if (cents < lo || cents > hi) { showError(form, `You can pay between ${money(lo)} and ${money(hi)} at a time.`); custom.focus(); return; }
     try {
       const r = await busy(form.querySelector('button[type=submit]'), 'One moment...', () => api('POST', `/api/resident/accounts/${id}/pay`, { amount_cents: cents }));
       if (r.url) { location.assign(r.url); return; } // the demo's pretend processor has no card form
@@ -374,7 +376,7 @@ export async function requests() {
   return h('div', {},
     h('a', { href: '#/' }, '← Back'),
     h('h1', {}, 'Service requests'),
-    h('p', {}, 'Need to start, stop or move your service? Pick one below. City Hall will take it from there.'),
+    h('p', {}, `Need to start, stop or move your service? Pick one below. ${office()} will take it from there.`),
     // What is already under way comes first, so a person checking back does not scroll past the menu.
     list.length ? h('h2', {}, 'Your requests') : null,
     list.length ? h('ul', { class: 'list' }, list.map((r) => {
@@ -383,7 +385,7 @@ export async function requests() {
         h('h3', {}, REQUEST_KINDS[r.kind][0]),
         h('p', {}, h('span', { class: `status ${tone}` }, ICON[r.status], label)),
         h('p', { class: 'muted' }, [r.account_number ? `Account ${r.account_number}` : null, r.service_address, r.requested_date ? `For ${plainDate(String(r.requested_date).slice(0, 10))}` : null].filter(Boolean).join(', ')),
-        r.resolution ? h('p', {}, h('strong', {}, 'From City Hall: '), r.resolution) : null);
+        r.resolution ? h('p', {}, h('strong', {}, `From ${office()}: `), r.resolution) : null);
     })) : null,
     h('div', { class: 'card' }, h('h2', {}, 'Make a new request'),
       h('ul', { class: 'list' }, Object.entries(REQUEST_KINDS).map(([k, [t, d]]) =>
@@ -407,7 +409,7 @@ export async function requestNew(kind) {
     stop: [acct, date('Last day you need service'), field({ id: 'note', label: 'Anything we should know? (optional)', tag: 'textarea', maxlength: 2000 })],
     move_out: [acct, date('Day you are moving out'), field({ id: 'fwd', label: 'Where should we mail your final bill?', hint: 'Full mailing address', autocomplete: 'street-address', required: true }), field({ id: 'phone', label: 'Phone number (optional)', type: 'tel', inputmode: 'tel', autocomplete: 'tel' })],
     transfer: [acct, field({ id: 'addr', label: 'Your new address in town', autocomplete: 'off', required: true }), date('Day you are moving'), field({ id: 'phone', label: 'Phone number (optional)', type: 'tel', inputmode: 'tel', autocomplete: 'tel' })],
-    leak: [phone ? h('p', { class: 'notice warn' }, `If water is flooding a home or street, call City Hall now at ${phone}.`) : null, acct, field({ id: 'note', label: 'Where is the leak?', hint: 'For example: at the meter in the front yard', tag: 'textarea', maxlength: 2000, required: true }), field({ id: 'phone', label: 'Phone number (optional)', type: 'tel', inputmode: 'tel', autocomplete: 'tel' })],
+    leak: [phone ? h('p', { class: 'notice warn' }, `If water is flooding a home or street, call ${office()} now at ${phone}.`) : null, acct, field({ id: 'note', label: 'Where is the leak?', hint: 'For example: at the meter in the front yard', tag: 'textarea', maxlength: 2000, required: true }), field({ id: 'phone', label: 'Phone number (optional)', type: 'tel', inputmode: 'tel', autocomplete: 'tel' })],
   }[kind];
   const form = h('form', { novalidate: true }, h('p', {}, meta[1]), parts, h('div', { class: 'actions' }, h('button', { class: 'btn', type: 'submit' }, 'Send my request'), h('a', { class: 'btn secondary', href: '#/requests' }, 'Cancel')));
   form.addEventListener('submit', async (e) => {
@@ -425,7 +427,7 @@ export async function requestNew(kind) {
 
 export function requestSent() {
   return h('div', {}, h('h1', {}, 'Request sent'),
-    h('p', { class: 'notice' }, 'Thank you. City Hall has your request.'),
+    h('p', { class: 'notice' }, `Thank you. ${office()} has your request.`),
     h('p', {}, 'We will update the status on this site. You do not need to do anything else.'),
     h('div', { class: 'actions' }, h('a', { class: 'btn', href: '#/requests' }, 'See my requests'), h('a', { class: 'btn secondary', href: '#/' }, 'Back to my bills')));
 }

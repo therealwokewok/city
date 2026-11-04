@@ -27,6 +27,13 @@ const servers = projects.map((p, i) => {
   };
 });
 
+// The first-run setup page is tested too: one bare program per browser, with no database configured, on 4190+.
+// (The test creates the database itself; the name must not exist beforehand.)
+const setupServers = projects.map((_p, i) => ({
+  command: 'npx tsx e2e/setup-server.ts', url: `http://127.0.0.1:${4190 + i}/healthz`, timeout: 60_000, reuseExistingServer: false,
+  env: { PORT: String(4190 + i), CONFIG_DIR: `.ui-audit/setup-${i}`, SETUP_DB: `utilities_e2e_setup_${i}`, SETUP_TOKEN: '12345678', ALLOW_DEMO_ADAPTERS: '1' },
+}));
+
 export default defineConfig({
   testDir: 'e2e',
   testMatch: '**/*.spec.ts',
@@ -34,6 +41,6 @@ export default defineConfig({
   retries: 0,
   timeout: 45_000,
   use: { trace: 'retain-on-failure', screenshot: 'only-on-failure' },
-  webServer: servers,
+  webServer: [...servers, ...setupServers],
   projects,
 });
