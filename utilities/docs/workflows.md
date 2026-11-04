@@ -737,6 +737,9 @@ Services and rates, Printing, Activity log.
   cents; a cap "never more than this percent of the bill"; "Add a fee to bank account payments" with its
   percentage and largest fee. A live example line reads "Example: a $100.00 credit card payment costs the customer
   $103.00." as the numbers change. The fee charged to a customer is grossed up so the city nets the full bill.
+- **Apple Pay and Google Pay**: Google Pay shows up on its own; **Turn on Apple Pay for this web address** asks
+  Stripe to check the site's address and answers "✓ Apple Pay is on for utilities.city.gov" or says what Stripe
+  could not check. Card numbers still go straight from the phone to Stripe, so the city's PCI position is unchanged.
 - **Save settings** asks for the safety check, then "✓ Settings saved." A bad number says which field: "Please check
   'Safety check minutes'. It needs a number of at least 1."
 - Only a city administrator can change the money fields (due days, late charge, shutoff days, approval limit, tax,
