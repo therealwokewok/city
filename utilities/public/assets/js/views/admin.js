@@ -1,6 +1,6 @@
 import { h, field, money, plainDate, showError, busy, confirmDialog, announce, todayIso, fill } from '../dom.js';
 import { api, has, state } from '../api.js';
-import { dbFields, testReport } from '../setup.js';
+import { dbFields, testReport, PROVIDERS } from '../setup.js';
 
 const safe = (fn, title = 'Settings') => async (...a) => {
   try { return await fn(...a); } catch (e) { return h('div', {}, h('h1', {}, title), h('p', { class: 'error', role: 'alert' }, e.message)); }
@@ -658,16 +658,17 @@ export const database = safe(async () => {
   const msg = h('div', { role: 'status' });
   const facts = h('dl', { class: 'facts' },
     h('dt', {}, 'Set by'), h('dd', {}, d.source === 'env' ? 'the host, through the DATABASE_URL environment variable' : d.source === 'file' ? `the setup page (saved in ${d.file})` : 'nothing yet'),
+    h('dt', {}, 'Provider'), h('dd', {}, (PROVIDERS.find((p) => p[0] === d.provider) || [])[1] || 'Not recorded'),
     h('dt', {}, 'How'), h('dd', {}, d.mode === 'url' ? 'One connection address' : d.mode === 'socket' ? 'Local socket' : 'Host and port'),
     h('dt', {}, 'Where'), h('dd', {}, d.socket ? d.socket : `${d.host || '?'}${d.port ? ':' + d.port : ''}`),
     h('dt', {}, 'Database'), h('dd', {}, d.database || '?'),
     h('dt', {}, 'App user'), h('dd', {}, d.user || '?'),
-    h('dt', {}, 'Encryption'), h('dd', {}, d.ssl === 'verify-full' ? 'Required and verified' : d.ssl === 'require' ? 'Required' : d.ssl === 'disable' ? 'Off' : d.ssl),
+    h('dt', {}, 'Encryption'), h('dd', {}, d.ssl === 'verify-full' ? `Required and verified (${d.ca_source === 'aws-rds' ? "Amazon's RDS bundle" : d.ca_source === 'paste' ? 'pasted CA certificate' : 'trusted authorities'})` : d.ssl === 'verify-ca' ? 'Verified certificate only' : d.ssl === 'require' ? 'Required' : d.ssl === 'disable' ? 'Off' : d.ssl),
     h('dt', {}, 'Owner for updates'), h('dd', {}, d.has_owner ? (d.owner_user || 'set') : 'not set (updates to the tables are run by hand)'),
     h('dt', {}, 'Connections kept open'), h('dd', {}, String(d.pool_max)));
   const report = h('div', { 'aria-live': 'polite' });
   const testNow = h('button', { class: 'btn secondary', type: 'button' }, 'Test the current connection');
-  const dbf = dbFields({ mode: d.mode, host: d.host, port: d.port, database: d.database, user: d.user, socket: d.socket, ssl: d.ssl === 'require' || d.ssl === 'verify-full' ? d.ssl : '', pool_max: d.pool_max });
+  const dbf = dbFields({ mode: d.mode, provider: d.provider, host: d.host, port: d.port, database: d.database, user: d.user, socket: d.socket, ssl: ['require', 'verify-full', 'verify-ca'].includes(d.ssl) ? d.ssl : '', ca_source: d.ca_source, pool_max: d.pool_max });
   const change = h('form', { novalidate: true, class: 'card', hidden: true },
     h('h2', {}, 'Change the connection'),
     h('p', { class: 'notice warn' }, 'Point this only at a database that already holds this city (for example after moving it to a new server or a managed service). The change is checked first, then takes effect when the program is restarted.'),

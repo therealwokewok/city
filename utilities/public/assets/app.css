@@ -67,7 +67,7 @@ h2 { font-size: 1.55rem; line-height: 1.25; margin: 1.5rem 0 .5rem; }
 h3 { font-size: 1.4rem; margin: 1rem 0 .25rem; }
 p { margin: 0 0 1rem; max-width: 38rem; }
 a { color: var(--primary); text-underline-offset: .15em; }
-a:hover { color: var(--primary-hover); }
+@media (hover: hover) { a:hover { color: var(--primary-hover); } }
 .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 .skip { position: absolute; left: .5rem; top: -4rem; background: var(--primary); color: var(--primary-text); padding: .75rem 1rem; border-radius: 8px; z-index: 50; }
 .skip:focus { top: .5rem; }

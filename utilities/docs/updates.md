@@ -57,6 +57,14 @@ Two ways, and the host's choice wins:
 Either way the program refuses to serve as the owner in production; the web process only ever holds the limited
 `utilities_app` role.
 
+Where the database can live: any PostgreSQL 16 or newer. The setup page has presets for Amazon RDS and Aurora
+(verified with Amazon's bundle, kept as `CONFIG_DIR/aws-rds-global-bundle.pem` and refreshed every 90 days), Google
+Cloud SQL (the Auth Proxy on the same server, or "verified certificate only" with the instance CA), Azure (verified
+with public roots), Neon, Supabase, DigitalOcean, Heroku, Crunchy Bridge and a local server. A password is always
+required and a database off this computer is always reached over TLS. Other engines (MySQL, SQL Server, SQLite) are
+not supported: the row-level security, security-definer functions and triggers the program depends on are
+PostgreSQL features, and the same protections cannot be rebuilt on them.
+
 ## Changing keys and passwords
 
 - **Stripe keys or webhook secret:** edit `.env`, then `docker compose ... up -d`. The program refuses to start when only some of the three Stripe values are set, or when the webhook secret is a placeholder, so a half-done rotation is caught at once. Lost webhook secret: make a new one on Stripe's webhook page and paste it in.

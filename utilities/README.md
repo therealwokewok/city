@@ -49,6 +49,12 @@ In development, sign-in codes print to the console and payments use a fake proce
    fields, or a local socket, with TLS off, required or verified), press Test, and the program creates the tables
    and a limited `utilities_app` role for itself. Then the city: name, state, time zone, web address, office name,
    phone, hours, addresses, and the first administrator. The real site starts on the same port when you finish.
+   The page knows the common hosts and picks the right verification for each: Amazon RDS and Aurora (Amazon's
+   certificate bundle is fetched for you), Google Cloud SQL (through the Auth Proxy, or with the instance CA),
+   Azure Database for PostgreSQL, Neon, Supabase, DigitalOcean, Heroku, Crunchy Bridge, or PostgreSQL on the same
+   computer. Two rules are never optional: every connection has a password, and any database that is not on this
+   computer is reached over TLS. The engine is PostgreSQL 16 or newer only: the wall between customers (row-level
+   security), the approvals and the tamper-evident ledger live inside it, and no other engine offers the same.
    Prefer settings from the host instead? Set `DATABASE_URL` (or `DATABASE_URL_FILE`) and the setup page only
    asks about the city. The ready-made `docker-compose.auto-update.yml` does that and bundles PostgreSQL.
 2. Put it behind HTTPS on its own subdomain (the app listens on this computer only; `deploy/Caddyfile` is an example proxy). Fill in `.env` (see `.env.example`). The compose file backs the database up every night; copy the backups off the computer.

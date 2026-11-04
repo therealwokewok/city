@@ -9,7 +9,7 @@ import { MemoryEmail } from '../src/adapters/email.js';
 import { FakePaymentsAdapter } from '../src/adapters/payments.js';
 import { closePool, tx } from '../src/db.js';
 import { createSession, sha } from '../src/auth.js';
-import { describeDb, envValue, loadDbConfig, poolConfig, saveDbConfig, testDb, validateDbConfig } from '../src/config.js';
+import { describeDb, ensureAwsBundle, envValue, loadDbConfig, poolConfig, saveDbConfig, testDb, validateDbConfig } from '../src/config.js';
 import { migrationsDir } from '../src/migrate.js';
 import { DEFAULT_SETTINGS, validateSettings } from '../src/settings.js';
 import { createPendingPayment } from '../src/domain/payments.js';
@@ -36,26 +36,43 @@ afterAll(async () => { await closePool(); await owner.end(); });
 describe('database connection settings', () => {
   it('accepts the three ways to connect and rejects what cannot work', () => {
     expect(validateDbConfig({ mode: 'url', url: 'postgres://u:p@h/db?sslmode=require' }).url).toContain('postgres://');
-    expect(validateDbConfig({ mode: 'fields', host: 'db.example.gov', user: 'utilities_app', password: 'x' })).toMatchObject({ port: 5432, database: 'utilities' });
-    expect(validateDbConfig({ mode: 'socket' })).toMatchObject({ socket: '/var/run/postgresql', user: 'utilities_app' });
+    expect(validateDbConfig({ mode: 'fields', host: 'db.example.gov', user: 'utilities_app', password: 'x', ssl: 'require' })).toMatchObject({ port: 5432, database: 'utilities' });
+    expect(validateDbConfig({ mode: 'socket', password: 'x' })).toMatchObject({ socket: '/var/run/postgresql', user: 'utilities_app' });
+    // never optional: a password everywhere, and TLS to any database that is not on this computer
+    expect(() => validateDbConfig({ mode: 'socket' })).toThrow(/password is required/);
+    expect(() => validateDbConfig({ mode: 'fields', host: '127.0.0.1', user: 'u' })).toThrow(/password is required/);
+    expect(() => validateDbConfig({ mode: 'url', url: 'postgres://u@localhost/db' })).toThrow(/password is required/);
+    expect(() => validateDbConfig({ mode: 'url', url: 'postgres://u:p@db.example.gov/db' })).toThrow(/must use TLS/);
+    expect(() => validateDbConfig({ mode: 'url', url: 'postgres://u:p@db.example.gov/db?sslmode=disable' })).toThrow(/must use TLS/);
+    expect(() => validateDbConfig({ mode: 'fields', host: 'db.example.gov', user: 'u', password: 'p' })).toThrow(/must use TLS/);
+    expect(() => validateDbConfig({ mode: 'fields', host: 'db.example.gov', user: 'u', password: 'p', ssl: 'disable' })).toThrow(/must use TLS/);
+    expect(validateDbConfig({ mode: 'url', url: 'postgres://u:p@localhost/db' }).url).toBeDefined(); // this computer: TLS optional
+    // verified TLS can trust the system's roots, Amazon's bundle, or a pasted certificate; Cloud SQL's "verify-ca" needs the pasted one
+    expect(validateDbConfig({ mode: 'url', url: 'postgres://u:p@x.neon.tech/db', ssl: 'verify-full' })).toMatchObject({ ca_source: 'system' });
+    expect(validateDbConfig({ mode: 'url', url: 'postgres://u:p@x.rds.amazonaws.com/db', ssl: 'verify-full', ca_source: 'aws-rds', provider: 'aws-rds' })).toMatchObject({ ca_source: 'aws-rds', provider: 'aws-rds' });
+    expect(() => validateDbConfig({ mode: 'url', url: 'postgres://u:p@1.2.3.4/db', ssl: 'verify-ca' })).toThrow(/Cloud SQL/);
+    expect(() => validateDbConfig({ mode: 'url', url: 'postgres://u:p@h/db', ssl: 'verify-full', ca_source: 'paste' })).toThrow(/CA certificate/);
+    expect(() => validateDbConfig({ mode: 'url', url: 'postgres://u:p@h/db?sslmode=require', provider: 'oracle' })).toThrow(/Unknown database provider/);
     expect(() => validateDbConfig({ mode: 'url', url: 'mysql://x' })).toThrow(/postgres:\/\//);
     expect(() => validateDbConfig({ mode: 'fields', host: 'bad host!' })).toThrow(/host/);
     expect(() => validateDbConfig({ mode: 'socket', socket: 'relative/path' })).toThrow(/full path/);
-    expect(() => validateDbConfig({ mode: 'url', url: 'postgres://h/db', ssl: 'verify-full' })).toThrow(/CA certificate/);
-    expect(() => validateDbConfig({ mode: 'url', url: 'postgres://h/db', ssl: 'verify-full', ca: 'not a cert' })).toThrow(/BEGIN CERTIFICATE/);
-    expect(() => validateDbConfig({ mode: 'url', url: 'postgres://h/db', pool_max: 1000 })).toThrow(/1 to 100/);
+    expect(() => validateDbConfig({ mode: 'url', url: 'postgres://u:p@h/db', ssl: 'verify-full', ca: 'not a cert' })).toThrow(/BEGIN CERTIFICATE/);
+    expect(() => validateDbConfig({ mode: 'url', url: 'postgres://u:p@h/db?sslmode=require', pool_max: 1000 })).toThrow(/1 to 100/);
     expect(() => validateDbConfig({ mode: 'ftp' })).toThrow(/Choose how to connect/);
   });
   it('turns the settings into what the driver needs, for the app and for the owner', () => {
     const cfg = validateDbConfig({ mode: 'fields', host: 'db', port: 5433, database: 'u', user: 'utilities_app', password: 'a', ssl: 'require', pool_max: 4, owner: { user: 'utilities_owner', password: 'o' } });
     expect(poolConfig(cfg)).toMatchObject({ host: 'db', port: 5433, database: 'u', user: 'utilities_app', password: 'a', max: 4, ssl: { rejectUnauthorized: false } });
     expect(poolConfig(cfg, 'owner')).toMatchObject({ user: 'utilities_owner', password: 'o', host: 'db' });
-    const url = validateDbConfig({ mode: 'url', url: 'postgres://utilities_app:a@db:5433/u', owner: { user: 'utilities_owner', password: 'o' } });
+    const url = validateDbConfig({ mode: 'url', url: 'postgres://utilities_app:a@db:5433/u?sslmode=require', owner: { user: 'utilities_owner', password: 'o' } });
     expect(poolConfig(url, 'owner')).toMatchObject({ host: 'db', port: 5433, database: 'u', user: 'utilities_owner', password: 'o' });
-    expect(poolConfig(validateDbConfig({ mode: 'socket' }))).toMatchObject({ host: '/var/run/postgresql', database: 'utilities' });
-    expect(() => poolConfig(validateDbConfig({ mode: 'socket' }), 'owner')).toThrow(/owner/);
+    expect(poolConfig(validateDbConfig({ mode: 'socket', password: 's' }))).toMatchObject({ host: '/var/run/postgresql', database: 'utilities', password: 's' });
+    expect(() => poolConfig(validateDbConfig({ mode: 'socket', password: 's' }), 'owner')).toThrow(/owner/);
     const ca = '-----BEGIN CERTIFICATE-----\nabc\n-----END CERTIFICATE-----';
-    expect(poolConfig(validateDbConfig({ mode: 'url', url: 'postgres://h/db', ssl: 'verify-full', ca }))).toMatchObject({ ssl: { rejectUnauthorized: true, ca } });
+    expect(poolConfig(validateDbConfig({ mode: 'url', url: 'postgres://u:p@h/db', ssl: 'verify-full', ca }))).toMatchObject({ ssl: { rejectUnauthorized: true, ca } });
+    expect(poolConfig(validateDbConfig({ mode: 'url', url: 'postgres://u:p@h/db', ssl: 'verify-full' })).ssl).toEqual({ rejectUnauthorized: true }); // system roots
+    const vca = poolConfig(validateDbConfig({ mode: 'url', url: 'postgres://u:p@h/db', ssl: 'verify-ca', ca })).ssl as any;
+    expect(vca).toMatchObject({ rejectUnauthorized: true, ca }); expect(vca.checkServerIdentity()).toBeUndefined();
   });
   it('never shows a password, and says where the settings came from', () => {
     const cfg = validateDbConfig({ mode: 'url', url: 'postgres://utilities_app:secret@db.example.gov:5432/utilities?sslmode=require', owner: { url: 'postgres://utilities_owner:topsecret@db.example.gov/utilities' } });
@@ -69,7 +86,7 @@ describe('database connection settings', () => {
     try {
       process.env.CONFIG_DIR = dir; delete process.env.DATABASE_URL; delete process.env.DATABASE_URL_FILE;
       expect(loadDbConfig().source).toBe('none');
-      const file = saveDbConfig(validateDbConfig({ mode: 'socket', database: 'saved' }));
+      const file = saveDbConfig(validateDbConfig({ mode: 'socket', database: 'saved', password: 'x' }));
       expect(fs.statSync(file).mode & 0o777).toBe(0o600);
       expect(loadDbConfig()).toMatchObject({ source: 'file', config: { mode: 'socket', database: 'saved' } });
       const secret = path.join(dir, 'url.txt'); fs.writeFileSync(secret, 'postgres://a:b@c/d\n');
@@ -82,6 +99,24 @@ describe('database connection settings', () => {
       for (const [k, v] of Object.entries(saved)) { if (v === undefined) delete process.env[k]; else process.env[k] = v; }
       fs.rmSync(dir, { recursive: true, force: true });
     }
+  });
+  it('fetches Amazon\'s RDS certificate bundle once and keeps it next to the connection file', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'utilities-aws-'));
+    const saved = process.env.CONFIG_DIR;
+    try {
+      process.env.CONFIG_DIR = dir;
+      let calls = 0;
+      const f = (async () => { calls++; return new Response('-----BEGIN CERTIFICATE-----\nMIIB\n-----END CERTIFICATE-----\n', { status: 200 }); }) as unknown as typeof fetch;
+      const cfg = validateDbConfig({ mode: 'url', url: 'postgres://u:p@h.rds.amazonaws.com/db', ssl: 'verify-full', ca_source: 'aws-rds' });
+      expect(() => poolConfig(cfg)).toThrow(/not been downloaded/);
+      await ensureAwsBundle(f); await ensureAwsBundle(f);
+      expect(calls).toBe(1);
+      expect(fs.statSync(path.join(dir, 'aws-rds-global-bundle.pem')).mode & 0o777).toBe(0o600);
+      expect((poolConfig(cfg).ssl as any).ca).toContain('BEGIN CERTIFICATE');
+      const bad = (async () => new Response('nope', { status: 500 })) as unknown as typeof fetch;
+      fs.unlinkSync(path.join(dir, 'aws-rds-global-bundle.pem'));
+      await expect(ensureAwsBundle(bad)).rejects.toThrow(/Could not download/);
+    } finally { if (saved === undefined) delete process.env.CONFIG_DIR; else process.env.CONFIG_DIR = saved; fs.rmSync(dir, { recursive: true, force: true }); }
   });
   it('tests a connection without changing anything, in plain words', async () => {
     const good = await testDb(validateDbConfig({ mode: 'url', url: process.env.DATABASE_URL }), migrationsDir);

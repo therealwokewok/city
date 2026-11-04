@@ -13,12 +13,28 @@ const select = (id, label, options, value, hint) => h('div', { class: 'field' },
 const tokenField = () => field({ id: 'token', label: 'Setup code', hint: 'The 8 numbers printed where the program was started. Only the person at the server has it.', inputmode: 'numeric', autocomplete: 'off', class: 'code', required: true });
 
 /** Builds the database part of the form and a function that reads it back as settings. Shared with the site administrator's Database page. */
+/** Where the database runs. Each preset picks the right way to connect and verify, and says what to type. */
+export const PROVIDERS = [
+  ['generic', 'Any PostgreSQL 16 or newer', 'Use the connection your administrator or host gave you. A database on another computer must use TLS.', { ssl: 'require', ca_source: 'system' }],
+  ['aws-rds', 'Amazon Web Services: RDS or Aurora PostgreSQL', 'Use the endpoint from the RDS console (port 5432) and the master user, or an RDS Proxy. Amazon\'s certificate bundle is downloaded for you, so the connection is verified.', { ssl: 'verify-full', ca_source: 'aws-rds' }],
+  ['google-cloud-sql', 'Google Cloud SQL for PostgreSQL', 'Either run the Cloud SQL Auth Proxy on this server and connect to 127.0.0.1 (it handles sign-in and encryption), or connect to the public address with "Verified certificate only" and paste the server CA from the instance\'s Connections page.', { ssl: 'verify-ca', ca_source: 'paste' }],
+  ['azure', 'Microsoft Azure Database for PostgreSQL', 'Flexible server, with the user name as shown in the portal. Azure\'s certificates chain to a public authority, so the connection is verified without pasting anything.', { ssl: 'verify-full', ca_source: 'system' }],
+  ['neon', 'Neon', 'Paste the connection string from the Neon dashboard. Its certificates chain to a public authority, so it is verified.', { ssl: 'verify-full', ca_source: 'system' }],
+  ['supabase', 'Supabase', 'Use the direct connection (port 5432), not the transaction pooler. For a verified connection, download the CA certificate under Database settings and paste it.', { ssl: 'require', ca_source: 'system' }],
+  ['digitalocean', 'DigitalOcean Managed Databases', 'Use the public connection details and download the CA certificate from the cluster\'s overview page to paste here.', { ssl: 'verify-full', ca_source: 'paste' }],
+  ['heroku', 'Heroku Postgres', 'Paste the DATABASE_URL from the add-on. Heroku\'s certificates are self-signed, so "Required" is the most it allows.', { ssl: 'require', ca_source: 'system' }],
+  ['crunchy', 'Crunchy Bridge', 'Paste the connection string and the CA certificate from the cluster page.', { ssl: 'verify-full', ca_source: 'paste' }],
+  ['local', 'PostgreSQL on this same computer', 'Connect to 127.0.0.1 or the local socket. Encryption is optional on this computer; a password is still required.', { ssl: '', ca_source: 'system' }],
+];
+
 export function dbFields(initial = {}) {
+  const provider = select('provider', 'Where is the database?', PROVIDERS.map(([k, n]) => [k, n]), initial.provider || 'generic');
+  const tip = h('p', { class: 'notice', id: 'provider-tip' });
   const mode = h('div', { role: 'radiogroup', 'aria-label': 'How to connect' });
   const radio = (v, label, hint) => h('label', { class: 'radio-card', for: 'm-' + v }, h('input', { type: 'radio', name: 'mode', id: 'm-' + v, value: v, checked: (initial.mode || 'url') === v ? true : null }), h('span', {}, h('strong', {}, label), h('span', { class: 'hint' }, ' ' + hint)));
   mode.append(radio('url', 'One connection address', 'What most database services give you, starting with postgres://'),
     radio('fields', 'Host, port, name, user and password', 'Typed separately'),
-    radio('socket', 'PostgreSQL on this same computer', 'Over its local socket, with no password'));
+    radio('socket', 'PostgreSQL on this same computer', 'Over its local socket. A password is still required.'));
   const urlBox = h('div', {}, field({ id: 'url', label: 'Connection address', hint: 'For example postgres://owner:password@db.example.com:5432/utilities?sslmode=require', value: initial.url || '', autocomplete: 'off', spellcheck: 'false' }));
   const fieldsBox = h('div', {},
     field({ id: 'host', label: 'Host', hint: 'The database computer, like db.example.gov or 10.0.0.5', value: initial.host || '', autocomplete: 'off' }),
@@ -29,21 +45,36 @@ export function dbFields(initial = {}) {
   const sockBox = h('div', {},
     field({ id: 'socket', label: 'Socket directory', hint: 'Usually /var/run/postgresql', value: initial.socket || '/var/run/postgresql', autocomplete: 'off' }),
     field({ id: 'sdatabase', label: 'Database name', value: initial.database || 'utilities', autocomplete: 'off' }),
-    field({ id: 'suser', label: 'User', hint: 'The system user the program runs as usually works', value: initial.user || '', autocomplete: 'off' }));
-  const tls = select('ssl', 'Encryption (TLS) to the database', [['', 'As written in the address, or off'], ['require', 'Required (encrypted, server not verified)'], ['verify-full', 'Required and verified with a CA certificate']], initial.ssl || '',
-    'A database on another computer should at least be "Required". Services such as Neon, Supabase, RDS and Azure give you a CA certificate for "Verified".');
-  const ca = field({ id: 'ca', label: 'CA certificate (for "Verified")', hint: 'Paste the PEM text, starting with -----BEGIN CERTIFICATE-----', tag: 'textarea', value: initial.ca || '' });
+    field({ id: 'suser', label: 'User', value: initial.user || '', autocomplete: 'off' }),
+    field({ id: 'spassword', label: 'Password', type: 'password', autocomplete: 'new-password' }));
+  const tls = select('ssl', 'Encryption (TLS) to the database', [['', 'As written in the address (sslmode=...), or off for this computer only'], ['require', 'Required (encrypted, server not verified)'], ['verify-full', 'Required and verified (recommended)'], ['verify-ca', 'Verified certificate only (Google Cloud SQL)']], initial.ssl || '',
+    'A database on another computer must be encrypted; "off" is only accepted for this computer.');
+  const caSrc = select('ca_source', 'How to verify the server', [['system', 'With the authorities this computer already trusts'], ['aws-rds', 'With Amazon\'s RDS certificate bundle (downloaded for you)'], ['paste', 'With a CA certificate I paste below']], initial.ca_source || 'system');
+  const ca = field({ id: 'ca', label: 'CA certificate', hint: 'Paste the PEM text, starting with -----BEGIN CERTIFICATE-----', tag: 'textarea', value: initial.ca || '' });
   const pool = field({ id: 'pool_max', label: 'Connections to keep open', hint: '10 is right for a small city', value: initial.pool_max || 10, inputmode: 'numeric', class: 'short' });
-  const sync = () => { const m = mode.querySelector('input:checked').value; urlBox.hidden = m !== 'url'; fieldsBox.hidden = m !== 'fields'; sockBox.hidden = m !== 'socket'; ca.hidden = tls.querySelector('select').value !== 'verify-full'; };
-  mode.addEventListener('change', sync); tls.addEventListener('change', sync); sync();
-  const root = h('div', {}, mode, urlBox, fieldsBox, sockBox, tls, ca, pool);
+  const sync = () => {
+    const m = mode.querySelector('input:checked').value; const t = tls.querySelector('select').value;
+    urlBox.hidden = m !== 'url'; fieldsBox.hidden = m !== 'fields'; sockBox.hidden = m !== 'socket';
+    const verified = t === 'verify-full' || t === 'verify-ca';
+    caSrc.hidden = !verified; ca.hidden = !verified || caSrc.querySelector('select').value !== 'paste';
+    const p = PROVIDERS.find((x) => x[0] === provider.querySelector('select').value); tip.textContent = p ? p[2] : '';
+  };
+  provider.addEventListener('change', () => {
+    const p = PROVIDERS.find((x) => x[0] === provider.querySelector('select').value);
+    if (p) { tls.querySelector('select').value = p[3].ssl; caSrc.querySelector('select').value = p[3].ca_source; if (p[0] === 'local') mode.querySelector('#m-fields').checked = true; }
+    sync();
+  });
+  mode.addEventListener('change', sync); tls.addEventListener('change', sync); caSrc.addEventListener('change', sync); sync();
+  const root = h('div', {}, provider, tip, mode, urlBox, fieldsBox, sockBox, tls, caSrc, ca, pool);
   const read = () => {
     const v = (id) => root.querySelector('#' + id)?.value ?? '';
     const m = mode.querySelector('input:checked').value;
-    const out = { mode: m, ssl: v('ssl') || undefined, ca: v('ca').trim() || undefined, pool_max: Number(v('pool_max')) || 10 };
+    const t = v('ssl');
+    const verified = t === 'verify-full' || t === 'verify-ca';
+    const out = { mode: m, provider: v('provider'), ssl: t || undefined, ca_source: verified ? v('ca_source') : undefined, ca: verified && v('ca_source') === 'paste' ? v('ca').trim() : undefined, pool_max: Number(v('pool_max')) || 10 };
     if (m === 'url') out.url = v('url').trim();
     else if (m === 'fields') Object.assign(out, { host: v('host').trim(), port: Number(v('port')) || 5432, database: v('database').trim(), user: v('user').trim(), password: v('password') });
-    else Object.assign(out, { socket: v('socket').trim(), database: v('sdatabase').trim(), user: v('suser').trim() });
+    else Object.assign(out, { socket: v('socket').trim(), database: v('sdatabase').trim(), user: v('suser').trim(), password: v('spassword') });
     return out;
   };
   return { root, read };

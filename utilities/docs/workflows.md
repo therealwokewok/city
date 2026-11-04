@@ -22,10 +22,15 @@ Contents: [Everyone](#everyone-signing-in-and-getting-around) · [Resident](#res
 Before there is a database or a city, the program answers every address with one page, **Set up utilities**, and
 prints an 8-digit setup code where it was started. Only someone who can read that console can use the page.
 
-1. **Step 1 of 2: the database.** Choose how to connect: "One connection address" (what Neon, Supabase, RDS,
+1. **Step 1 of 2: the database.** First "Where is the database?": any PostgreSQL, Amazon RDS or Aurora, Google
+   Cloud SQL, Azure, Neon, Supabase, DigitalOcean, Heroku, Crunchy Bridge, or this same computer; each preset fills in
+   the right encryption and shows a one-line tip (for Cloud SQL, say, run the Auth Proxy or paste the instance CA).
+   Then choose how to connect: "One connection address" (what Neon, Supabase, RDS,
    Azure and most hosts hand out, starting with `postgres://`), "Host, port, name, user and password" typed
    separately, or "PostgreSQL on this same computer" over its socket. Pick the encryption: as written in the
-   address, required, or verified with the provider's CA certificate (a box appears to paste it). Type the
+   address, required, verified (with the authorities this computer trusts, Amazon's RDS bundle fetched for you, or a
+   CA certificate pasted in), or "verified certificate only" for Cloud SQL. A password is always required, and a
+   database on another computer is refused without TLS. Type the
    database owner's connection; the program creates the tables and, with "Create the limited app user for me"
    ticked, a `utilities_app` role with its own password that the website runs as. **Test the connection** answers
    in plain words ("Connected to PostgreSQL 16.15 as utilities_owner. The connection is encrypted. The database is

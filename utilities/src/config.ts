@@ -5,16 +5,26 @@
 // Ways to connect, in the order most cities meet them:
 //   url     one connection address, as managed services hand out ("postgres://user:pass@host/db?sslmode=require")
 //   fields  host, port, database, user and password typed separately
-//   socket  a PostgreSQL on the same computer, over its Unix socket (no password, no network)
-// Plus TLS (off, required, or verified with a CA certificate), the pool size, and a separate owner connection for
+//   socket  a PostgreSQL on the same computer, over its Unix socket
+// Plus TLS (required, or verified with a CA certificate), the pool size, and a separate owner connection for
 // migrations, because the app itself runs as the limited utilities_app role.
+//
+// Two rules are never optional: every connection has a password (also over a socket), and a database that is not on
+// this same computer is reached over TLS. "Off" is only accepted for localhost.
 import fs from 'node:fs';
 import path from 'node:path';
 import pg from 'pg';
 
-export type SslMode = 'disable' | 'require' | 'verify-full';
+export type SslMode = 'disable' | 'require' | 'verify-ca' | 'verify-full';
+/** Where the CA certificate for verified TLS comes from: pasted in, the system's trusted roots, or Amazon's RDS bundle. */
+export type CaSource = 'paste' | 'system' | 'aws-rds';
+export const PROVIDERS = ['generic', 'aws-rds', 'google-cloud-sql', 'azure', 'neon', 'supabase', 'digitalocean', 'heroku', 'crunchy', 'docker', 'local'] as const;
+export type Provider = (typeof PROVIDERS)[number];
+export const AWS_RDS_BUNDLE_URL = 'https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem';
 export interface DbConfig {
   mode: 'url' | 'fields' | 'socket';
+  provider?: Provider;
+  ca_source?: CaSource;
   url?: string;
   host?: string; port?: number; database?: string; user?: string; password?: string;
   socket?: string;
@@ -54,10 +64,12 @@ export function loadDbConfig(): DbSource {
 function sslFromUrl(url: string): SslMode | undefined {
   const m = /[?&]sslmode=([a-z-]+)/.exec(url);
   if (!m) return undefined;
-  return m[1] === 'disable' ? 'disable' : m[1] === 'verify-full' || m[1] === 'verify-ca' ? 'verify-full' : 'require';
+  return m[1] === 'disable' ? 'disable' : m[1] === 'verify-full' ? 'verify-full' : m[1] === 'verify-ca' ? 'verify-ca' : 'require';
 }
 
 const HOST = /^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$/i;
+const LOOPBACK = new Set(['localhost', '127.0.0.1', '::1', '[::1]']);
+export const isLoopback = (host: string | undefined) => !!host && LOOPBACK.has(host.toLowerCase());
 export function validateDbConfig(raw: unknown): DbConfig {
   const c = (raw ?? {}) as Record<string, unknown>;
   const str = (k: string, max = 500) => { const v = c[k]; if (v === undefined || v === null || v === '') return undefined; if (typeof v !== 'string' || v.length > max) throw new Error(`${k} is not valid`); return v; };
@@ -65,26 +77,49 @@ export function validateDbConfig(raw: unknown): DbConfig {
   const mode = c.mode;
   if (mode !== 'url' && mode !== 'fields' && mode !== 'socket') throw new Error('Choose how to connect: an address, separate fields, or a socket');
   const out: DbConfig = { mode };
+  let remote = false;
   if (mode === 'url') {
     const url = str('url', 2000);
     if (!url || !/^postgres(ql)?:\/\//.test(url)) throw new Error('The connection address starts with postgres://');
-    try { new URL(url); } catch { throw new Error('That connection address is not well formed'); }
+    let u: URL;
+    try { u = new URL(url); } catch { throw new Error('That connection address is not well formed'); }
+    if (!u.username) throw new Error('The connection address needs a user, like postgres://user:password@host/db');
+    if (!u.password) throw new Error('A password is required. Put it in the address: postgres://user:password@host/db');
+    remote = !isLoopback(u.hostname.replace(/^\[|\]$/g, ''));
     out.url = url;
   } else if (mode === 'fields') {
     const host = str('host', 253); if (!host || !HOST.test(host)) throw new Error('Type the database host, like db.example.gov');
     out.host = host; out.port = num('port', 1, 65535) ?? 5432;
     out.database = str('database', 63) ?? 'utilities'; out.user = str('user', 63) ?? 'utilities_app'; out.password = str('password', 500);
+    if (!out.password) throw new Error('A password is required');
+    remote = !isLoopback(host);
   } else {
     const sock = str('socket', 300) ?? '/var/run/postgresql';
     if (!path.isAbsolute(sock)) throw new Error('The socket directory is a full path, like /var/run/postgresql');
-    out.socket = sock; out.database = str('database', 63) ?? 'utilities'; out.user = str('user', 63) ?? 'utilities_app';
+    out.socket = sock; out.database = str('database', 63) ?? 'utilities'; out.user = str('user', 63) ?? 'utilities_app'; out.password = str('password', 500);
+    if (!out.password) throw new Error('A password is required, even over the local socket');
   }
+  const provider = str('provider', 30);
+  if (provider) { if (!(PROVIDERS as readonly string[]).includes(provider)) throw new Error('Unknown database provider'); out.provider = provider as Provider; }
   const ssl = str('ssl', 20);
-  if (ssl !== undefined && ssl !== 'disable' && ssl !== 'require' && ssl !== 'verify-full') throw new Error('TLS is off, required, or verified');
+  if (ssl !== undefined && !['disable', 'require', 'verify-ca', 'verify-full'].includes(ssl)) throw new Error('TLS is off, required, or verified');
   if (ssl) out.ssl = ssl as SslMode;
+  const caSource = str('ca_source', 20);
+  if (caSource) { if (!['paste', 'system', 'aws-rds'].includes(caSource)) throw new Error('Unknown certificate source'); out.ca_source = caSource as CaSource; }
   const ca = str('ca', 20000);
-  if (ca) { if (!/-----BEGIN CERTIFICATE-----/.test(ca)) throw new Error('The CA certificate is a PEM file starting with -----BEGIN CERTIFICATE-----'); out.ca = ca; }
-  if (out.ssl === 'verify-full' && !out.ca) throw new Error('Verified TLS needs the CA certificate your database provider gives you');
+  if (ca) { if (!/-----BEGIN CERTIFICATE-----/.test(ca)) throw new Error('The CA certificate is a PEM file starting with -----BEGIN CERTIFICATE-----'); out.ca = ca; out.ca_source ??= 'paste'; }
+  if (out.ssl === 'verify-ca' || out.ssl === 'verify-full') {
+    out.ca_source ??= out.ca ? 'paste' : 'system';
+    if (out.ca_source === 'paste' && !out.ca) throw new Error('Verified TLS with a pasted certificate needs the CA certificate your database provider gives you');
+    if (out.ssl === 'verify-ca' && out.ca_source === 'system') throw new Error('"Verified certificate only" needs the provider\'s CA certificate (Google Cloud SQL gives you one in the console)');
+  }
+  // A database on another computer is reached over TLS, always. The address may say so itself (sslmode=require or
+  // verify-full); otherwise the TLS choice must.
+  if (remote) {
+    const inUrl = out.mode === 'url' ? sslFromUrl(out.url!) : undefined;
+    const effective = out.ssl ?? inUrl;
+    if (effective !== 'require' && effective !== 'verify-ca' && effective !== 'verify-full') throw new Error('A database on another computer must use TLS. Choose "Required" or "Verified" (or put sslmode=require in the address).');
+  }
   out.pool_max = num('pool_max', 1, 100);
   out.connect_timeout_s = num('connect_timeout_s', 1, 120);
   if (c.owner && typeof c.owner === 'object') {
@@ -99,8 +134,31 @@ export function validateDbConfig(raw: unknown): DbConfig {
 }
 
 /** pg's connection settings for the app (or the owner, for migrations). */
+/** The CA to trust for verified TLS: pasted text, Amazon's cached bundle, or nothing (the system's own roots). */
+export function resolveCa(cfg: DbConfig): string | undefined {
+  if (cfg.ca_source === 'aws-rds') { try { return fs.readFileSync(awsBundleFile(), 'utf8'); } catch { throw new Error('Amazon\'s RDS certificate bundle has not been downloaded yet. Test the connection first (it fetches the bundle).'); } }
+  if (cfg.ca_source === 'system') return undefined;
+  return cfg.ca;
+}
+export const awsBundleFile = () => path.join(configDir(), 'aws-rds-global-bundle.pem');
+/** Downloads Amazon's RDS bundle once (it changes rarely); later starts use the copy on disk. */
+export async function ensureAwsBundle(fetchImpl: typeof fetch = fetch): Promise<void> {
+  const file = awsBundleFile();
+  if (fs.existsSync(file) && Date.now() - fs.statSync(file).mtimeMs < 90 * 86_400_000) return;
+  const r = await fetchImpl(AWS_RDS_BUNDLE_URL);
+  if (!r.ok) throw new Error(`Could not download Amazon's RDS certificate bundle (${r.status}). Check this server's internet access, or paste the bundle instead.`);
+  const text = await r.text();
+  if (!/-----BEGIN CERTIFICATE-----/.test(text)) throw new Error('The downloaded RDS bundle did not look like certificates');
+  fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
+  fs.writeFileSync(file, text, { mode: 0o600 });
+}
+
 export function poolConfig(cfg: DbConfig, who: 'app' | 'owner' = 'app'): pg.PoolConfig {
-  const ssl = cfg.ssl === 'disable' ? false : cfg.ssl === 'verify-full' ? { rejectUnauthorized: true, ca: cfg.ca } : cfg.ssl === 'require' ? { rejectUnauthorized: false } : undefined;
+  const ssl = cfg.ssl === 'disable' ? false
+    : cfg.ssl === 'verify-full' ? { rejectUnauthorized: true, ...(resolveCa(cfg) ? { ca: resolveCa(cfg) } : {}) }
+    // Google Cloud SQL's server certificates carry no host name, so only the chain is checked, against the instance's CA.
+    : cfg.ssl === 'verify-ca' ? { rejectUnauthorized: true, ca: resolveCa(cfg), checkServerIdentity: () => undefined }
+    : cfg.ssl === 'require' ? { rejectUnauthorized: false } : undefined;
   const base: pg.PoolConfig = { max: cfg.pool_max ?? 10, connectionTimeoutMillis: (cfg.connect_timeout_s ?? 10) * 1000, ...(ssl !== undefined ? { ssl } : {}) };
   if (who === 'owner') {
     if (cfg.owner?.url) return { ...base, connectionString: cfg.owner.url };
@@ -109,7 +167,7 @@ export function poolConfig(cfg: DbConfig, who: 'app' | 'owner' = 'app'): pg.Pool
     return { ...poolConfig(cfg, 'app'), user: cfg.owner.user, password: cfg.owner.password };
   }
   if (cfg.mode === 'url') return { ...base, connectionString: cfg.url };
-  if (cfg.mode === 'socket') return { ...base, host: cfg.socket, database: cfg.database, user: cfg.user };
+  if (cfg.mode === 'socket') return { ...base, host: cfg.socket, database: cfg.database, user: cfg.user, password: cfg.password };
   return { ...base, host: cfg.host, port: cfg.port, database: cfg.database, user: cfg.user, password: cfg.password };
 }
 function fromUrl(url: string, user: string, password?: string): pg.PoolConfig {
@@ -124,7 +182,7 @@ export function describeDb(src: DbSource) {
   let host = c.host, port = c.port, database = c.database, user = c.user;
   if (c.mode === 'url' && c.url) { try { const u = new URL(c.url); host = u.hostname; port = u.port ? Number(u.port) : 5432; database = u.pathname.replace(/^\//, ''); user = decodeURIComponent(u.username); } catch { /* shown as is */ } }
   return { source: src.source, file: src.file, mode: c.mode, host, port, database, user, socket: c.socket, ssl: c.ssl ?? (c.mode === 'url' ? 'as written in the address' : 'disable'),
-    has_ca: !!c.ca, pool_max: c.pool_max ?? 10, connect_timeout_s: c.connect_timeout_s ?? 10, has_owner: !!(c.owner?.url || c.owner?.user), owner_user: c.owner?.user ?? (c.owner?.url ? safeUser(c.owner.url) : undefined) };
+    has_ca: !!c.ca, ca_source: c.ca_source, provider: c.provider, pool_max: c.pool_max ?? 10, connect_timeout_s: c.connect_timeout_s ?? 10, has_owner: !!(c.owner?.url || c.owner?.user), owner_user: c.owner?.user ?? (c.owner?.url ? safeUser(c.owner.url) : undefined) };
 }
 const safeUser = (url: string) => { try { return decodeURIComponent(new URL(url).username); } catch { return undefined; } };
 
@@ -135,8 +193,9 @@ export interface DbTest {
   tables: 'none' | 'some' | 'current'; pending?: number; cities?: number; owner_ok?: boolean; owner_problem?: string;
 }
 /** Connects once with the app settings (and once as the owner, if given) and reports what it found. Changes nothing. */
-export async function testDb(cfg: DbConfig, migrationsDir: string): Promise<DbTest> {
+export async function testDb(cfg: DbConfig, migrationsDir: string, fetchImpl: typeof fetch = fetch): Promise<DbTest> {
   const out: DbTest = { ok: false, tables: 'none' };
+  if (cfg.ca_source === 'aws-rds') { try { await ensureAwsBundle(fetchImpl); } catch (e: any) { out.problem = e.message; return out; } }
   const client = new pg.Client({ ...poolConfig(cfg), connectionTimeoutMillis: (cfg.connect_timeout_s ?? 10) * 1000 });
   try {
     await client.connect();
